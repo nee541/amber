@@ -144,6 +144,8 @@ function App() {
   const reminderItems = useMemo(() => getReminderItems(derivedItems), [derivedItems]);
   const expiredReminderItems = reminderItems.filter((item) => item.systemStatus === "expired");
   const warningReminderItems = reminderItems.filter((item) => item.systemStatus === "warning");
+  const activeItemCount = derivedItems.filter((item) => item.deletedAt === undefined && item.userStatus === "active").length;
+  const visibleItemCount = visibleItems.length;
   const trashItems = useMemo(
     () => sortItemsForDefaultList(filterItems(derivedItems, { includeDeleted: true, userStatus: "all_history" })),
     [derivedItems],
@@ -253,9 +255,15 @@ function App() {
   return (
     <main className="app-shell">
       <header className="app-header">
-        <div>
+        <div className="app-title">
           <p className="eyebrow">Amber</p>
           <h1>商品保质期</h1>
+          <p>记录生产日期和保质期，优先处理临期与已过期商品。</p>
+        </div>
+        <div className="header-summary" aria-label="保质期概览">
+          <SummaryPill label="活跃商品" value={activeItemCount} />
+          <SummaryPill label="已过期" value={expiredReminderItems.length} tone="expired" />
+          <SummaryPill label="临期" value={warningReminderItems.length} tone="warning" />
         </div>
         <button type="button" className="primary-action" onClick={openCreateForm}>
           + 新增商品
@@ -284,6 +292,13 @@ function App() {
       {view === "items" ? (
         <section className="workspace">
           <section className="list-pane" aria-label="商品列表">
+            <div className="pane-heading">
+              <div>
+                <h2>商品列表</h2>
+                <p>默认优先显示已过期和临期商品。</p>
+              </div>
+              <span className="count-chip">{visibleItemCount} 件</span>
+            </div>
             <div className="toolbar">
               <label>
                 <span>搜索</span>
@@ -313,20 +328,20 @@ function App() {
                 </select>
               </label>
               <label>
-                <span>商品状态</span>
+                <span>记录状态</span>
                 <select
                   value={userStatusFilter}
                   onChange={(event) => setUserStatusFilter(event.currentTarget.value as UserStatusFilter)}
                 >
-                  <option value="all_active">默认活跃</option>
-                  <option value="all_history">全部历史</option>
+                  <option value="all_active">在用/持有（默认）</option>
+                  <option value="all_history">全部非删除记录</option>
                   <option value="used_up">已用完</option>
                   <option value="discarded">已丢弃</option>
                   <option value="archived">已归档</option>
                 </select>
               </label>
               <label>
-                <span>保质状态</span>
+                <span>到期状态</span>
                 <select
                   value={systemStatusFilter}
                   onChange={(event) => setSystemStatusFilter(event.currentTarget.value as SystemStatusFilter)}
@@ -348,7 +363,7 @@ function App() {
             />
           </section>
 
-          <aside className="detail-pane" aria-label="商品详情">
+          <aside className={`detail-pane ${formOpen || selectedItem ? "" : "is-empty"}`} aria-label="商品详情">
             {formOpen ? (
               <ProductForm
                 form={form}
@@ -410,6 +425,7 @@ function App() {
               }}
             >
               <input
+                aria-label="全局默认提醒提前天数"
                 type="number"
                 min="0"
                 step="1"
@@ -423,7 +439,10 @@ function App() {
           <ManagementSection
             title="分类"
             emptyText="暂无分类"
-            items={state.categories}
+            items={state.categories.map((category) => ({
+              ...category,
+              usageCount: countItemsByReference(state.items, "categoryId", category.id),
+            }))}
             drafts={categoryDrafts}
             newName={newCategoryName}
             onNewNameChange={setNewCategoryName}
@@ -450,7 +469,10 @@ function App() {
           <ManagementSection
             title="存放位置"
             emptyText="暂无存放位置"
-            items={state.storageLocations}
+            items={state.storageLocations.map((location) => ({
+              ...location,
+              usageCount: countItemsByReference(state.items, "storageLocationId", location.id),
+            }))}
             drafts={locationDrafts}
             newName={newLocationName}
             onNewNameChange={setNewLocationName}
@@ -545,53 +567,86 @@ function ItemTable({ items, selectedItemId, onSelect, onEdit, onTrash }: ItemTab
   }
 
   return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>名称</th>
-            <th>分类</th>
-            <th>到期日期</th>
-            <th>状态</th>
-            <th>数量</th>
-            <th>位置</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item) => (
-            <tr key={item.id} className={selectedItemId === item.id ? "selected" : ""}>
-              <td>
-                <button type="button" className="link-button" onClick={() => onSelect(item.id)}>
-                  {item.name}
-                </button>
-              </td>
-              <td>{item.categoryName}</td>
-              <td>
-                <strong>{item.expiryDate}</strong>
-                <span className="subtext">{item.relativeLabel}</span>
-              </td>
-              <td>
-                <StatusBadge status={item.systemStatus} />
-                <span className="subtext">{userStatusLabels[item.userStatus]}</span>
-              </td>
-              <td>{formatQuantity(item.quantity)}</td>
-              <td>{item.storageLocationName}</td>
-              <td>
-                <div className="row-actions">
-                  <button type="button" onClick={() => onEdit(item)}>
-                    编辑
-                  </button>
-                  <button type="button" className="danger" onClick={() => onTrash(item.id)}>
-                    删除
-                  </button>
-                </div>
-              </td>
+    <>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th>分类</th>
+              <th>到期日期</th>
+              <th>状态</th>
+              <th>数量</th>
+              <th>位置</th>
+              <th>操作</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.id} className={selectedItemId === item.id ? "selected" : ""}>
+                <td>
+                  <button type="button" className="link-button" onClick={() => onSelect(item.id)}>
+                    {item.name}
+                  </button>
+                </td>
+                <td>{item.categoryName}</td>
+                <td>
+                  <strong>{item.expiryDate}</strong>
+                  <span className="subtext">{item.relativeLabel}</span>
+                </td>
+                <td>
+                  <StatusBadge status={item.systemStatus} />
+                  <span className="subtext">{userStatusLabels[item.userStatus]}</span>
+                </td>
+                <td>{formatQuantity(item.quantity)}</td>
+                <td>{item.storageLocationName}</td>
+                <td>
+                  <div className="row-actions">
+                    <button type="button" onClick={() => onEdit(item)}>
+                      编辑
+                    </button>
+                    <button type="button" className="danger" onClick={() => onTrash(item.id)}>
+                      删除
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mobile-item-list" aria-label="移动端商品列表">
+        {items.map((item) => (
+          <article key={item.id} className={`mobile-item-card ${selectedItemId === item.id ? "selected" : ""}`}>
+            <div className="mobile-item-main">
+              <button type="button" className="link-button" onClick={() => onSelect(item.id)}>
+                {item.name}
+              </button>
+              <StatusBadge status={item.systemStatus} />
+            </div>
+            <div className="mobile-item-date">
+              <strong>{item.expiryDate}</strong>
+              <span>{item.relativeLabel}</span>
+            </div>
+            <div className="item-meta-grid">
+              <span>{item.categoryName}</span>
+              <span>{item.storageLocationName}</span>
+              <span>{formatQuantity(item.quantity)}</span>
+              <span>{userStatusLabels[item.userStatus]}</span>
+            </div>
+            <div className="row-actions">
+              <button type="button" onClick={() => onEdit(item)}>
+                编辑
+              </button>
+              <button type="button" className="danger" onClick={() => onTrash(item.id)}>
+                删除
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -705,9 +760,13 @@ function ProductForm({
   return (
     <form className="product-form" onSubmit={onSubmit}>
       <div className="section-heading">
-        <h2>{isEditing ? "编辑商品" : "新增商品"}</h2>
-        <p>{previewItem ? `${previewItem.expiryDate} / ${previewItem.relativeLabel}` : "填写必填字段后预览到期状态"}</p>
+        <div>
+          <h2>{isEditing ? "编辑商品" : "新增商品"}</h2>
+          <p>分类和位置可输入新名称，保存后会自动创建。</p>
+        </div>
       </div>
+
+      <ExpiryPreview item={previewItem} globalReminderDays={globalReminderDays} />
 
       <label>
         <span>名称</span>
@@ -797,32 +856,34 @@ function ProductForm({
         <textarea value={form.note} rows={3} onChange={(event) => onChange("note", event.currentTarget.value)} />
       </label>
 
-      <div className="reminder-control">
-        <label className="checkbox-row">
-          <input
-            type="checkbox"
-            checked={form.customReminderEnabled}
-            onChange={(event) => onChange("customReminderEnabled", event.currentTarget.checked)}
-          />
-          <span>商品自定义提醒</span>
-        </label>
-        <input
-          type="number"
-          min="0"
-          step="1"
-          disabled={!form.customReminderEnabled}
-          value={form.customReminderEnabled ? form.customReminderDays : String(globalReminderDays)}
-          onChange={(event) => onChange("customReminderDays", event.currentTarget.value)}
-        />
-      </div>
-
-      {previewItem ? (
-        <div className="preview-strip">
-          <StatusBadge status={previewItem.systemStatus} />
-          <span>到期日期 {previewItem.expiryDate}</span>
-          <span>{previewItem.reminderDays} 天前进入提醒</span>
+      <section className="reminder-control" aria-label="商品提醒设置">
+        <div>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.customReminderEnabled}
+              onChange={(event) => onChange("customReminderEnabled", event.currentTarget.checked)}
+            />
+            <span>覆盖全局提醒</span>
+          </label>
+          <p className="subtext">
+            {form.customReminderEnabled
+              ? "仅当前商品使用自定义提前天数。"
+              : `使用全局默认：到期前 ${globalReminderDays} 天提醒。`}
+          </p>
         </div>
-      ) : null}
+        <label>
+          <span>提前天数</span>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            disabled={!form.customReminderEnabled}
+            value={form.customReminderEnabled ? form.customReminderDays : String(globalReminderDays)}
+            onChange={(event) => onChange("customReminderDays", event.currentTarget.value)}
+          />
+        </label>
+      </section>
 
       <div className="detail-actions">
         <button type="submit" className="primary-action">
@@ -855,28 +916,36 @@ function ReminderGroup({ title, items, onSelect, onStatus }: ReminderGroupProps)
           <p>暂无记录</p>
         </div>
       ) : (
-        items.map((item) => (
-          <article key={item.id} className="reminder-row">
-            <button type="button" className="link-button" onClick={() => onSelect(item.id)}>
-              {item.name}
-            </button>
-            <span>{item.categoryName}</span>
-            <strong>{item.expiryDate}</strong>
-            <StatusBadge status={item.systemStatus} />
-            <span>{item.relativeLabel}</span>
-            <div className="row-actions">
-              <button type="button" onClick={() => onStatus(item.id, "used_up")}>
-                已用完
-              </button>
-              <button type="button" onClick={() => onStatus(item.id, "discarded")}>
-                已丢弃
-              </button>
-              <button type="button" onClick={() => onStatus(item.id, "archived")}>
-                已归档
-              </button>
-            </div>
-          </article>
-        ))
+        <div className="reminder-list">
+          {items.map((item) => (
+            <article key={item.id} className={`reminder-row ${item.systemStatus}`}>
+              <div className="reminder-main">
+                <button type="button" className="link-button" onClick={() => onSelect(item.id)}>
+                  {item.name}
+                </button>
+                <span className="subtext">
+                  {item.categoryName} / {item.storageLocationName}
+                </span>
+              </div>
+              <div className="reminder-date">
+                <strong>{item.expiryDate}</strong>
+                <span>{item.relativeLabel}</span>
+              </div>
+              <StatusBadge status={item.systemStatus} />
+              <div className="row-actions">
+                <button type="button" onClick={() => onStatus(item.id, "used_up")}>
+                  已用完
+                </button>
+                <button type="button" onClick={() => onStatus(item.id, "discarded")}>
+                  已丢弃
+                </button>
+                <button type="button" onClick={() => onStatus(item.id, "archived")}>
+                  已归档
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
       )}
     </section>
   );
@@ -885,6 +954,7 @@ function ReminderGroup({ title, items, onSelect, onStatus }: ReminderGroupProps)
 type ManagementItem = {
   id: string;
   name: string;
+  usageCount?: number;
 };
 
 type ManagementSectionProps = {
@@ -927,7 +997,11 @@ function ManagementSection({
         <p>{items.length} 项</p>
       </div>
       <form className="inline-form" onSubmit={onCreate}>
-        <input value={newName} onChange={(event) => onNewNameChange(event.currentTarget.value)} />
+        <input
+          value={newName}
+          aria-label={`新增${title}名称`}
+          onChange={(event) => onNewNameChange(event.currentTarget.value)}
+        />
         <button type="submit">新增</button>
       </form>
       {items.length === 0 ? (
@@ -936,34 +1010,45 @@ function ManagementSection({
         <div className="management-list">
           {items.map((item) => (
             <div key={item.id} className="management-row">
-              <input value={drafts[item.id] ?? item.name} onChange={(event) => onDraftChange(item.id, event.currentTarget.value)} />
-              <button type="button" onClick={() => onRename(item.id, drafts[item.id] ?? item.name)}>
-                重命名
-              </button>
-              <select
-                value={migrationTargets[item.id] ?? ""}
-                onChange={(event) => onMigrationTargetChange(item.id, event.currentTarget.value)}
-                aria-label={`${item.name} 迁移目标`}
-              >
-                <option value="">迁移到...</option>
-                {migrationOptions
-                  .filter((option) => option.id !== item.id)
-                  .map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.name}
-                    </option>
-                  ))}
-              </select>
-              <button
-                type="button"
-                disabled={!migrationTargets[item.id]}
-                onClick={() => onMigrateDelete(item.id, migrationTargets[item.id])}
-              >
-                迁移并删除
-              </button>
-              <button type="button" className="danger" onClick={() => onDelete(item.id)}>
-                删除
-              </button>
+              <div className="management-main">
+                <input
+                  value={drafts[item.id] ?? item.name}
+                  aria-label={`${item.name} 名称`}
+                  onChange={(event) => onDraftChange(item.id, event.currentTarget.value)}
+                />
+                <span className="muted">
+                  {item.usageCount && item.usageCount > 0 ? `被 ${item.usageCount} 件商品使用` : "未被商品使用"}
+                </span>
+              </div>
+              <div className="management-actions">
+                <button type="button" onClick={() => onRename(item.id, drafts[item.id] ?? item.name)}>
+                  重命名
+                </button>
+                <select
+                  value={migrationTargets[item.id] ?? ""}
+                  onChange={(event) => onMigrationTargetChange(item.id, event.currentTarget.value)}
+                  aria-label={`${item.name} 迁移目标`}
+                >
+                  <option value="">迁移后删除...</option>
+                  {migrationOptions
+                    .filter((option) => option.id !== item.id)
+                    .map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.name}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!migrationTargets[item.id]}
+                  onClick={() => onMigrateDelete(item.id, migrationTargets[item.id])}
+                >
+                  迁移并删除
+                </button>
+                <button type="button" className="danger" onClick={() => onDelete(item.id)}>
+                  删除
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -974,6 +1059,52 @@ function ManagementSection({
 
 function StatusBadge({ status }: { status: SystemStatus }) {
   return <span className={`status-badge ${status}`}>{systemStatusLabels[status]}</span>;
+}
+
+function SummaryPill({
+  label,
+  value,
+  tone = "neutral",
+}: {
+  label: string;
+  value: number;
+  tone?: "neutral" | "warning" | "expired";
+}) {
+  return (
+    <span className={`summary-pill ${tone}`}>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function ExpiryPreview({ item, globalReminderDays }: { item?: DerivedItem; globalReminderDays: number }) {
+  if (!item) {
+    return (
+      <section className="preview-panel">
+        <div>
+          <h3>到期预览</h3>
+          <p>填写生产日期和保质期后，会立即计算到期日期。</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className={`preview-panel ${item.systemStatus}`}>
+      <div>
+        <h3>到期预览</h3>
+        <p>
+          {item.expiryDate} / {item.relativeLabel}
+        </p>
+      </div>
+      <StatusBadge status={item.systemStatus} />
+      <span className="preview-rule">
+        {item.reminderSource === "custom" ? "商品自定义" : "全局默认"}：提前 {item.reminderDays} 天提醒
+      </span>
+      <span className="subtext">全局默认当前为 {globalReminderDays} 天</span>
+    </section>
+  );
 }
 
 function createEmptyForm(today: string, categoryName: string): ItemFormState {
@@ -1022,7 +1153,15 @@ function formToInput(form: ItemFormState): ProductFormInput {
 
 function createFormPreview(form: ItemFormState, globalReminderDays: number, today: string): DerivedItem | undefined {
   const shelfLifeValue = parseRequiredNumber(form.shelfLifeValue);
-  if (!form.name.trim() || !form.categoryName.trim() || !form.productionDate || !Number.isInteger(shelfLifeValue)) {
+  const customReminderDays = form.customReminderEnabled ? parseRequiredNumber(form.customReminderDays) : undefined;
+  if (!form.productionDate || !Number.isInteger(shelfLifeValue)) {
+    return undefined;
+  }
+
+  if (
+    customReminderDays !== undefined &&
+    (!Number.isInteger(customReminderDays) || customReminderDays < 0)
+  ) {
     return undefined;
   }
 
@@ -1031,7 +1170,7 @@ function createFormPreview(form: ItemFormState, globalReminderDays: number, toda
     return createDerivedItem(
       {
         id: "preview",
-        name: form.name.trim(),
+        name: form.name.trim() || "商品预览",
         categoryId: "preview-category",
         productionDate: form.productionDate,
         shelfLifeValue,
@@ -1039,12 +1178,12 @@ function createFormPreview(form: ItemFormState, globalReminderDays: number, toda
         quantity: parseOptionalNumber(form.quantity),
         storageLocationId: undefined,
         note: form.note.trim() || undefined,
-        customReminderDays: form.customReminderEnabled ? parseRequiredNumber(form.customReminderDays) : undefined,
+        customReminderDays,
         userStatus: "active",
         createdAt: "",
         updatedAt: "",
       },
-      [{ id: "preview-category", name: form.categoryName.trim(), createdAt: "", updatedAt: "" }],
+      [{ id: "preview-category", name: form.categoryName.trim() || "预览分类", createdAt: "", updatedAt: "" }],
       [],
       { defaultReminderDays: globalReminderDays },
       today,
@@ -1052,6 +1191,14 @@ function createFormPreview(form: ItemFormState, globalReminderDays: number, toda
   } catch {
     return undefined;
   }
+}
+
+function countItemsByReference(
+  items: Array<{ categoryId: string; storageLocationId?: string }>,
+  key: "categoryId" | "storageLocationId",
+  id: string,
+): number {
+  return items.filter((item) => item[key] === id).length;
 }
 
 function parseOptionalNumber(value: string): number | undefined {

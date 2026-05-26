@@ -11,6 +11,12 @@ node_modules
 dist
 dist-ssr
 .test-dist
+.cache
+.playwright-browsers
+.pnpm-store
+test-results
+docs/ui-screenshots/chrome-profile
+docs/ui-screenshots/capture-ui-bin
 *.local
 
 # Editor directories and files
