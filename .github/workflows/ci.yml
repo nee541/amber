@@ -88,7 +88,8 @@ jobs:
             libxdo-dev \
             patchelf \
             rpm \
-            wget
+            wget \
+            xdg-utils
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

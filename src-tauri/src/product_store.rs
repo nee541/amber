@@ -1,16 +1,20 @@
+use libsqlite3_sys::{
+    sqlite3, sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_text,
+    sqlite3_close, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_text,
+    sqlite3_column_type, sqlite3_errmsg, sqlite3_exec, sqlite3_finalize, sqlite3_free,
+    sqlite3_open, sqlite3_prepare_v2, sqlite3_step, sqlite3_stmt, SQLITE_DONE, SQLITE_NULL,
+    SQLITE_OK, SQLITE_ROW, SQLITE_TRANSIENT,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::{CStr, CString},
     fs,
-    os::raw::{c_char, c_double, c_int, c_uchar, c_void},
+    os::raw::c_int,
     path::{Path, PathBuf},
     ptr,
 };
 use tauri::Manager;
 
-const SQLITE_OK: c_int = 0;
-const SQLITE_ROW: c_int = 100;
-const SQLITE_DONE: c_int = 101;
 const SEED_TIMESTAMP: &str = "1970-01-01T00:00:00.000Z";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -64,57 +68,6 @@ pub struct StorageLocation {
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub default_reminder_days: i64,
-}
-
-enum Sqlite3 {}
-enum Sqlite3Stmt {}
-
-type SqliteCallback = Option<
-    unsafe extern "C" fn(
-        data: *mut c_void,
-        column_count: c_int,
-        column_values: *mut *mut c_char,
-        column_names: *mut *mut c_char,
-    ) -> c_int,
->;
-type SqliteDestructor = Option<unsafe extern "C" fn(*mut c_void)>;
-
-#[link(name = "sqlite3")]
-extern "C" {
-    fn sqlite3_open(filename: *const c_char, database: *mut *mut Sqlite3) -> c_int;
-    fn sqlite3_close(database: *mut Sqlite3) -> c_int;
-    fn sqlite3_errmsg(database: *mut Sqlite3) -> *const c_char;
-    fn sqlite3_exec(
-        database: *mut Sqlite3,
-        sql: *const c_char,
-        callback: SqliteCallback,
-        data: *mut c_void,
-        error_message: *mut *mut c_char,
-    ) -> c_int;
-    fn sqlite3_free(value: *mut c_void);
-    fn sqlite3_prepare_v2(
-        database: *mut Sqlite3,
-        sql: *const c_char,
-        byte_count: c_int,
-        statement: *mut *mut Sqlite3Stmt,
-        tail: *mut *const c_char,
-    ) -> c_int;
-    fn sqlite3_finalize(statement: *mut Sqlite3Stmt) -> c_int;
-    fn sqlite3_step(statement: *mut Sqlite3Stmt) -> c_int;
-    fn sqlite3_bind_text(
-        statement: *mut Sqlite3Stmt,
-        index: c_int,
-        value: *const c_char,
-        byte_count: c_int,
-        destructor: SqliteDestructor,
-    ) -> c_int;
-    fn sqlite3_bind_int64(statement: *mut Sqlite3Stmt, index: c_int, value: i64) -> c_int;
-    fn sqlite3_bind_double(statement: *mut Sqlite3Stmt, index: c_int, value: c_double) -> c_int;
-    fn sqlite3_bind_null(statement: *mut Sqlite3Stmt, index: c_int) -> c_int;
-    fn sqlite3_column_text(statement: *mut Sqlite3Stmt, index: c_int) -> *const c_uchar;
-    fn sqlite3_column_int64(statement: *mut Sqlite3Stmt, index: c_int) -> i64;
-    fn sqlite3_column_double(statement: *mut Sqlite3Stmt, index: c_int) -> c_double;
-    fn sqlite3_column_type(statement: *mut Sqlite3Stmt, index: c_int) -> c_int;
 }
 
 #[tauri::command]
@@ -981,7 +934,7 @@ fn ensure_storage_location_exists(
 }
 
 struct Database {
-    raw: *mut Sqlite3,
+    raw: *mut sqlite3,
 }
 
 impl Database {
@@ -1069,15 +1022,15 @@ enum SqlStep {
 }
 
 struct Statement {
-    database: *mut Sqlite3,
-    raw: *mut Sqlite3Stmt,
+    database: *mut sqlite3,
+    raw: *mut sqlite3_stmt,
 }
 
 impl Statement {
     fn bind_text(&mut self, index: c_int, value: &str) -> Result<(), String> {
         let value = CString::new(value).map_err(|error| error.to_string())?;
         let code =
-            unsafe { sqlite3_bind_text(self.raw, index, value.as_ptr(), -1, sqlite_transient()) };
+            unsafe { sqlite3_bind_text(self.raw, index, value.as_ptr(), -1, SQLITE_TRANSIENT()) };
         self.check_bind(code)
     }
 
@@ -1164,7 +1117,7 @@ impl Statement {
     }
 
     fn is_null(&self, index: c_int) -> bool {
-        unsafe { sqlite3_column_type(self.raw, index) == 5 }
+        unsafe { sqlite3_column_type(self.raw, index) == SQLITE_NULL }
     }
 
     fn check_bind(&self, code: c_int) -> Result<(), String> {
@@ -1184,7 +1137,7 @@ impl Drop for Statement {
     }
 }
 
-fn sqlite_error(database: *mut Sqlite3) -> String {
+fn sqlite_error(database: *mut sqlite3) -> String {
     let message = unsafe { sqlite3_errmsg(database) };
     if message.is_null() {
         return "SQLite 操作失败".to_string();
@@ -1193,10 +1146,6 @@ fn sqlite_error(database: *mut Sqlite3) -> String {
     unsafe { CStr::from_ptr(message) }
         .to_string_lossy()
         .into_owned()
-}
-
-fn sqlite_transient() -> SqliteDestructor {
-    unsafe { std::mem::transmute::<isize, SqliteDestructor>(-1) }
 }
 
 #[cfg(test)]
