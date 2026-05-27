@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "24"
+  PNPM_VERSION: "11.2.2"
+
+jobs:
+  web:
+    name: Web checks
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run frontend and domain tests
+        run: pnpm test
+
+      - name: Build frontend
+        run: pnpm build
+
+  tauri:
+    name: Tauri checks (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x64
+            runner: ubuntu-24.04
+          - label: linux-arm64
+            runner: ubuntu-24.04-arm
+          - label: macos-x64
+            runner: macos-15-intel
+          - label: macos-arm64
+            runner: macos-15
+          - label: windows-x64
+            runner: windows-2025
+          - label: windows-arm64
+            runner: windows-11-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Linux system dependencies
+        if: startsWith(matrix.runner, 'ubuntu-')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            rpm \
+            wget
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build output
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Check Tauri Rust crate
+        run: cargo check --manifest-path src-tauri/Cargo.toml --locked

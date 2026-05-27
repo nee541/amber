@@ -1,0 +1,200 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+    inputs:
+      release_draft:
+        description: Keep the GitHub release as a draft.
+        required: true
+        default: true
+        type: boolean
+      prerelease:
+        description: Mark the GitHub release as a prerelease.
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: "24"
+  PNPM_VERSION: "11.2.2"
+
+jobs:
+  preflight:
+    name: Preflight checks
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            rpm \
+            wget
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Verify release tag matches app version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          app_version="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          expected_tag="v${app_version}"
+          if [ "${GITHUB_REF_NAME}" != "${expected_tag}" ]; then
+            echo "Release tag ${GITHUB_REF_NAME} does not match Tauri app version ${app_version}."
+            echo "Use tag ${expected_tag}, or update src-tauri/tauri.conf.json before releasing."
+            exit 1
+          fi
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build output
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run frontend and domain tests
+        run: pnpm test
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Check Tauri Rust crate
+        run: cargo check --manifest-path src-tauri/Cargo.toml --locked
+
+  build:
+    name: Build ${{ matrix.label }}
+    needs: preflight
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS Apple Silicon
+            runner: macos-15
+            rust-target: aarch64-apple-darwin
+            tauri-args: --target aarch64-apple-darwin
+          - label: macOS Intel
+            runner: macos-15-intel
+            rust-target: x86_64-apple-darwin
+            tauri-args: --target x86_64-apple-darwin
+          - label: Windows x64
+            runner: windows-2025
+            rust-target: x86_64-pc-windows-msvc
+            tauri-args: --target x86_64-pc-windows-msvc
+          - label: Windows ARM64
+            runner: windows-11-arm
+            rust-target: aarch64-pc-windows-msvc
+            tauri-args: --target aarch64-pc-windows-msvc
+          - label: Linux x64
+            runner: ubuntu-24.04
+            rust-target: x86_64-unknown-linux-gnu
+            tauri-args: --target x86_64-unknown-linux-gnu
+          - label: Linux ARM64
+            runner: ubuntu-24.04-arm
+            rust-target: aarch64-unknown-linux-gnu
+            tauri-args: --target aarch64-unknown-linux-gnu
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Linux system dependencies
+        if: startsWith(matrix.runner, 'ubuntu-')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            rpm \
+            wget
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Cache Rust build output
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and upload Tauri artifacts
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: .
+          tauriScript: pnpm tauri
+          tagName: v__VERSION__
+          releaseName: Amber v__VERSION__
+          releaseBody: |
+            Amber desktop builds generated by GitHub Actions.
+
+            These artifacts are unsigned unless platform signing secrets are configured later.
+          releaseDraft: ${{ github.event_name != 'workflow_dispatch' || inputs.release_draft }}
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease }}
+          generateReleaseNotes: true
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: Amber_[version]_[platform]_[arch]_[bundle]
+          releaseAssetNamePattern: Amber_[version]_[platform]_[arch][_setup][ext]
+          args: ${{ matrix.tauri-args }}
