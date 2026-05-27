@@ -29,3 +29,5 @@ docs/ui-screenshots/capture-ui-bin
 *.njsproj
 *.sln
 *.sw?
+
+docs/ui-screenshots/

@@ -8,6 +8,8 @@
 
 Amber 使用 SQLite 作为本地业务数据库，使用应用数据目录保存扫描件、图片和 PDF 文件。SQLite 只保存结构化元数据、关联关系和文件路径。
 
+Amber 使用 shadcn/ui + shadcn blocks 作为组件库，除非库中不提供相关组件，否则请使用 shadcn/ui + shadcn blocks。
+
 本文件只记录长期可复用的工程规则。具体产品需求、MVP 范围、页面设计和任务目标应写在当前任务 prompt 或 `docs/` 文档中，不要直接写进本文件。
 
 ## 技术栈

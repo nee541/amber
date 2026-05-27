@@ -271,17 +271,37 @@ function App() {
       </header>
 
       <nav className="tabs" aria-label="主导航">
-        <button type="button" className={view === "items" ? "active" : ""} onClick={() => setView("items")}>
+        <button
+          type="button"
+          className={view === "items" ? "active" : ""}
+          aria-current={view === "items" ? "page" : undefined}
+          onClick={() => setView("items")}
+        >
           商品
         </button>
-        <button type="button" className={view === "reminders" ? "active" : ""} onClick={() => setView("reminders")}>
+        <button
+          type="button"
+          className={view === "reminders" ? "active" : ""}
+          aria-current={view === "reminders" ? "page" : undefined}
+          onClick={() => setView("reminders")}
+        >
           提醒
           <span>{reminderItems.length}</span>
         </button>
-        <button type="button" className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>
+        <button
+          type="button"
+          className={view === "settings" ? "active" : ""}
+          aria-current={view === "settings" ? "page" : undefined}
+          onClick={() => setView("settings")}
+        >
           设置
         </button>
-        <button type="button" className={view === "trash" ? "active" : ""} onClick={() => setView("trash")}>
+        <button
+          type="button"
+          className={view === "trash" ? "active" : ""}
+          aria-current={view === "trash" ? "page" : undefined}
+          onClick={() => setView("trash")}
+        >
           回收站
           <span>{trashItems.length}</span>
         </button>
@@ -412,7 +432,12 @@ function App() {
             </div>
             <div className="quick-values">
               {[0, 7, 30, 90].map((days) => (
-                <button key={days} type="button" onClick={() => applyGlobalReminder(days)}>
+                <button
+                  key={days}
+                  type="button"
+                  className={state.settings.defaultReminderDays === days ? "active" : ""}
+                  onClick={() => applyGlobalReminder(days)}
+                >
                   {days === 0 ? "当天" : `${days} 天`}
                 </button>
               ))}
@@ -583,9 +608,27 @@ function ItemTable({ items, selectedItemId, onSelect, onEdit, onTrash }: ItemTab
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={item.id} className={selectedItemId === item.id ? "selected" : ""}>
+              <tr
+                key={item.id}
+                className={`item-row ${item.systemStatus} ${selectedItemId === item.id ? "selected" : ""}`}
+                tabIndex={0}
+                onClick={() => onSelect(item.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelect(item.id);
+                  }
+                }}
+              >
                 <td>
-                  <button type="button" className="link-button" onClick={() => onSelect(item.id)}>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelect(item.id);
+                    }}
+                  >
                     {item.name}
                   </button>
                 </td>
@@ -601,7 +644,7 @@ function ItemTable({ items, selectedItemId, onSelect, onEdit, onTrash }: ItemTab
                 <td>{formatQuantity(item.quantity)}</td>
                 <td>{item.storageLocationName}</td>
                 <td>
-                  <div className="row-actions">
+                  <div className="row-actions" onClick={(event) => event.stopPropagation()}>
                     <button type="button" onClick={() => onEdit(item)}>
                       编辑
                     </button>
@@ -618,9 +661,27 @@ function ItemTable({ items, selectedItemId, onSelect, onEdit, onTrash }: ItemTab
 
       <div className="mobile-item-list" aria-label="移动端商品列表">
         {items.map((item) => (
-          <article key={item.id} className={`mobile-item-card ${selectedItemId === item.id ? "selected" : ""}`}>
+          <article
+            key={item.id}
+            className={`mobile-item-card ${item.systemStatus} ${selectedItemId === item.id ? "selected" : ""}`}
+            tabIndex={0}
+            onClick={() => onSelect(item.id)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSelect(item.id);
+              }
+            }}
+          >
             <div className="mobile-item-main">
-              <button type="button" className="link-button" onClick={() => onSelect(item.id)}>
+              <button
+                type="button"
+                className="link-button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSelect(item.id);
+                }}
+              >
                 {item.name}
               </button>
               <StatusBadge status={item.systemStatus} />
@@ -635,7 +696,7 @@ function ItemTable({ items, selectedItemId, onSelect, onEdit, onTrash }: ItemTab
               <span>{formatQuantity(item.quantity)}</span>
               <span>{userStatusLabels[item.userStatus]}</span>
             </div>
-            <div className="row-actions">
+            <div className="row-actions" onClick={(event) => event.stopPropagation()}>
               <button type="button" onClick={() => onEdit(item)}>
                 编辑
               </button>
@@ -792,9 +853,11 @@ function ProductForm({
         <label>
           <span>生产日期</span>
           <input
-            type="date"
+            type="text"
+            inputMode="numeric"
+            pattern="\d{4}-\d{2}-\d{2}"
+            placeholder="YYYY-MM-DD"
             value={form.productionDate}
-            max={getTodayString()}
             onChange={(event) => onChange("productionDate", event.currentTarget.value)}
             required
           />
