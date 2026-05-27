@@ -13,8 +13,22 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             product_store::load_product_state,
-            product_store::save_product_state,
-            product_store::reset_product_state
+            product_store::reset_product_state,
+            product_store::create_product_item,
+            product_store::update_product_item,
+            product_store::set_product_item_user_status,
+            product_store::move_product_item_to_trash,
+            product_store::restore_product_item_from_trash,
+            product_store::permanently_delete_product_item,
+            product_store::create_product_category,
+            product_store::rename_product_category,
+            product_store::delete_product_category,
+            product_store::migrate_and_delete_product_category,
+            product_store::create_product_storage_location,
+            product_store::rename_product_storage_location,
+            product_store::delete_product_storage_location,
+            product_store::migrate_and_delete_product_storage_location,
+            product_store::update_product_default_reminder_days
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -123,15 +123,167 @@ pub fn load_product_state(app: tauri::AppHandle) -> Result<AmberProductState, St
 }
 
 #[tauri::command]
-pub fn save_product_state(app: tauri::AppHandle, state: AmberProductState) -> Result<(), String> {
-    save_state_to_path(&product_db_path(&app)?, &state)
-}
-
-#[tauri::command]
 pub fn reset_product_state(app: tauri::AppHandle) -> Result<AmberProductState, String> {
     let state = initial_state();
     save_state_to_path(&product_db_path(&app)?, &state)?;
     Ok(state)
+}
+
+#[tauri::command]
+pub fn create_product_item(
+    app: tauri::AppHandle,
+    item: Item,
+    category: Option<Category>,
+    storage_location: Option<StorageLocation>,
+) -> Result<AmberProductState, String> {
+    create_product_item_at_path(&product_db_path(&app)?, item, category, storage_location)
+}
+
+#[tauri::command]
+pub fn update_product_item(
+    app: tauri::AppHandle,
+    item: Item,
+    category: Option<Category>,
+    storage_location: Option<StorageLocation>,
+) -> Result<AmberProductState, String> {
+    update_product_item_at_path(&product_db_path(&app)?, item, category, storage_location)
+}
+
+#[tauri::command]
+pub fn set_product_item_user_status(
+    app: tauri::AppHandle,
+    item_id: String,
+    user_status: String,
+    updated_at: String,
+) -> Result<AmberProductState, String> {
+    set_product_item_user_status_at_path(
+        &product_db_path(&app)?,
+        &item_id,
+        &user_status,
+        &updated_at,
+    )
+}
+
+#[tauri::command]
+pub fn move_product_item_to_trash(
+    app: tauri::AppHandle,
+    item_id: String,
+    deleted_at: String,
+    updated_at: String,
+) -> Result<AmberProductState, String> {
+    move_product_item_to_trash_at_path(&product_db_path(&app)?, &item_id, &deleted_at, &updated_at)
+}
+
+#[tauri::command]
+pub fn restore_product_item_from_trash(
+    app: tauri::AppHandle,
+    item_id: String,
+    updated_at: String,
+) -> Result<AmberProductState, String> {
+    restore_product_item_from_trash_at_path(&product_db_path(&app)?, &item_id, &updated_at)
+}
+
+#[tauri::command]
+pub fn permanently_delete_product_item(
+    app: tauri::AppHandle,
+    item_id: String,
+) -> Result<AmberProductState, String> {
+    permanently_delete_product_item_at_path(&product_db_path(&app)?, &item_id)
+}
+
+#[tauri::command]
+pub fn create_product_category(
+    app: tauri::AppHandle,
+    category: Category,
+) -> Result<AmberProductState, String> {
+    create_product_category_at_path(&product_db_path(&app)?, category)
+}
+
+#[tauri::command]
+pub fn rename_product_category(
+    app: tauri::AppHandle,
+    category_id: String,
+    name: String,
+    updated_at: String,
+) -> Result<AmberProductState, String> {
+    rename_product_category_at_path(&product_db_path(&app)?, &category_id, &name, &updated_at)
+}
+
+#[tauri::command]
+pub fn delete_product_category(
+    app: tauri::AppHandle,
+    category_id: String,
+) -> Result<AmberProductState, String> {
+    delete_product_category_at_path(&product_db_path(&app)?, &category_id)
+}
+
+#[tauri::command]
+pub fn migrate_and_delete_product_category(
+    app: tauri::AppHandle,
+    source_category_id: String,
+    target_category_id: String,
+    updated_at: String,
+) -> Result<AmberProductState, String> {
+    migrate_and_delete_product_category_at_path(
+        &product_db_path(&app)?,
+        &source_category_id,
+        &target_category_id,
+        &updated_at,
+    )
+}
+
+#[tauri::command]
+pub fn create_product_storage_location(
+    app: tauri::AppHandle,
+    storage_location: StorageLocation,
+) -> Result<AmberProductState, String> {
+    create_product_storage_location_at_path(&product_db_path(&app)?, storage_location)
+}
+
+#[tauri::command]
+pub fn rename_product_storage_location(
+    app: tauri::AppHandle,
+    storage_location_id: String,
+    name: String,
+    updated_at: String,
+) -> Result<AmberProductState, String> {
+    rename_product_storage_location_at_path(
+        &product_db_path(&app)?,
+        &storage_location_id,
+        &name,
+        &updated_at,
+    )
+}
+
+#[tauri::command]
+pub fn delete_product_storage_location(
+    app: tauri::AppHandle,
+    storage_location_id: String,
+) -> Result<AmberProductState, String> {
+    delete_product_storage_location_at_path(&product_db_path(&app)?, &storage_location_id)
+}
+
+#[tauri::command]
+pub fn migrate_and_delete_product_storage_location(
+    app: tauri::AppHandle,
+    source_storage_location_id: String,
+    target_storage_location_id: String,
+    updated_at: String,
+) -> Result<AmberProductState, String> {
+    migrate_and_delete_product_storage_location_at_path(
+        &product_db_path(&app)?,
+        &source_storage_location_id,
+        &target_storage_location_id,
+        &updated_at,
+    )
+}
+
+#[tauri::command]
+pub fn update_product_default_reminder_days(
+    app: tauri::AppHandle,
+    default_reminder_days: i64,
+) -> Result<AmberProductState, String> {
+    update_product_default_reminder_days_at_path(&product_db_path(&app)?, default_reminder_days)
 }
 
 fn load_state_from_path(path: &Path) -> Result<AmberProductState, String> {
@@ -158,8 +310,276 @@ fn save_state_to_path(path: &Path, state: &AmberProductState) -> Result<(), Stri
     }
 }
 
+fn create_product_item_at_path(
+    path: &Path,
+    item: Item,
+    category: Option<Category>,
+    storage_location: Option<StorageLocation>,
+) -> Result<AmberProductState, String> {
+    mutate_state_at_path(path, |database| {
+        if let Some(category) = category {
+            insert_category(database, &category)?;
+        }
+        if let Some(storage_location) = storage_location {
+            insert_storage_location(database, &storage_location)?;
+        }
+        insert_item(database, &item)
+    })
+}
+
+fn update_product_item_at_path(
+    path: &Path,
+    item: Item,
+    category: Option<Category>,
+    storage_location: Option<StorageLocation>,
+) -> Result<AmberProductState, String> {
+    mutate_state_at_path(path, |database| {
+        ensure_item_exists(database, &item.id)?;
+        if let Some(category) = category {
+            insert_category(database, &category)?;
+        }
+        if let Some(storage_location) = storage_location {
+            insert_storage_location(database, &storage_location)?;
+        }
+        update_item(database, &item)
+    })
+}
+
+fn set_product_item_user_status_at_path(
+    path: &Path,
+    item_id: &str,
+    user_status: &str,
+    updated_at: &str,
+) -> Result<AmberProductState, String> {
+    mutate_state_at_path(path, |database| {
+        ensure_item_exists(database, item_id)?;
+        let mut statement =
+            database.prepare("UPDATE items SET user_status = ?, updated_at = ? WHERE id = ?")?;
+        statement.bind_text(1, user_status)?;
+        statement.bind_text(2, updated_at)?;
+        statement.bind_text(3, item_id)?;
+        statement.step_done()
+    })
+}
+
+fn move_product_item_to_trash_at_path(
+    path: &Path,
+    item_id: &str,
+    deleted_at: &str,
+    updated_at: &str,
+) -> Result<AmberProductState, String> {
+    mutate_state_at_path(path, |database| {
+        ensure_item_exists(database, item_id)?;
+        let mut statement =
+            database.prepare("UPDATE items SET deleted_at = ?, updated_at = ? WHERE id = ?")?;
+        statement.bind_text(1, deleted_at)?;
+        statement.bind_text(2, updated_at)?;
+        statement.bind_text(3, item_id)?;
+        statement.step_done()
+    })
+}
+
+fn restore_product_item_from_trash_at_path(
+    path: &Path,
+    item_id: &str,
+    updated_at: &str,
+) -> Result<AmberProductState, String> {
+    mutate_state_at_path(path, |database| {
+        ensure_item_exists(database, item_id)?;
+        let mut statement =
+            database.prepare("UPDATE items SET deleted_at = NULL, updated_at = ? WHERE id = ?")?;
+        statement.bind_text(1, updated_at)?;
+        statement.bind_text(2, item_id)?;
+        statement.step_done()
+    })
+}
+
+fn permanently_delete_product_item_at_path(
+    path: &Path,
+    item_id: &str,
+) -> Result<AmberProductState, String> {
+    mutate_state_at_path(path, |database| {
+        ensure_deleted_item_exists(database, item_id)?;
+        let mut statement = database.prepare("DELETE FROM items WHERE id = ?")?;
+        statement.bind_text(1, item_id)?;
+        statement.step_done()
+    })
+}
+
+fn create_product_category_at_path(
+    path: &Path,
+    category: Category,
+) -> Result<AmberProductState, String> {
+    mutate_state_at_path(path, |database| insert_category(database, &category))
+}
+
+fn rename_product_category_at_path(
+    path: &Path,
+    category_id: &str,
+    name: &str,
+    updated_at: &str,
+) -> Result<AmberProductState, String> {
+    mutate_state_at_path(path, |database| {
+        ensure_category_exists(database, category_id)?;
+        let mut statement =
+            database.prepare("UPDATE categories SET name = ?, updated_at = ? WHERE id = ?")?;
+        statement.bind_text(1, name)?;
+        statement.bind_text(2, updated_at)?;
+        statement.bind_text(3, category_id)?;
+        statement.step_done()
+    })
+}
+
+fn delete_product_category_at_path(
+    path: &Path,
+    category_id: &str,
+) -> Result<AmberProductState, String> {
+    mutate_state_at_path(path, |database| {
+        ensure_category_exists(database, category_id)?;
+        if count_category_references(database, category_id)? > 0 {
+            return Err("分类正在被商品使用，请先迁移关联商品".to_string());
+        }
+        let mut statement = database.prepare("DELETE FROM categories WHERE id = ?")?;
+        statement.bind_text(1, category_id)?;
+        statement.step_done()
+    })
+}
+
+fn migrate_and_delete_product_category_at_path(
+    path: &Path,
+    source_category_id: &str,
+    target_category_id: &str,
+    updated_at: &str,
+) -> Result<AmberProductState, String> {
+    if source_category_id == target_category_id {
+        return Err("迁移目标不能是当前分类".to_string());
+    }
+
+    mutate_state_at_path(path, |database| {
+        ensure_category_exists(database, source_category_id)?;
+        ensure_category_exists(database, target_category_id)?;
+        let mut update_statement = database
+            .prepare("UPDATE items SET category_id = ?, updated_at = ? WHERE category_id = ?")?;
+        update_statement.bind_text(1, target_category_id)?;
+        update_statement.bind_text(2, updated_at)?;
+        update_statement.bind_text(3, source_category_id)?;
+        update_statement.step_done()?;
+
+        let mut delete_statement = database.prepare("DELETE FROM categories WHERE id = ?")?;
+        delete_statement.bind_text(1, source_category_id)?;
+        delete_statement.step_done()
+    })
+}
+
+fn create_product_storage_location_at_path(
+    path: &Path,
+    storage_location: StorageLocation,
+) -> Result<AmberProductState, String> {
+    mutate_state_at_path(path, |database| {
+        insert_storage_location(database, &storage_location)
+    })
+}
+
+fn rename_product_storage_location_at_path(
+    path: &Path,
+    storage_location_id: &str,
+    name: &str,
+    updated_at: &str,
+) -> Result<AmberProductState, String> {
+    mutate_state_at_path(path, |database| {
+        ensure_storage_location_exists(database, storage_location_id)?;
+        let mut statement = database
+            .prepare("UPDATE storage_locations SET name = ?, updated_at = ? WHERE id = ?")?;
+        statement.bind_text(1, name)?;
+        statement.bind_text(2, updated_at)?;
+        statement.bind_text(3, storage_location_id)?;
+        statement.step_done()
+    })
+}
+
+fn delete_product_storage_location_at_path(
+    path: &Path,
+    storage_location_id: &str,
+) -> Result<AmberProductState, String> {
+    mutate_state_at_path(path, |database| {
+        ensure_storage_location_exists(database, storage_location_id)?;
+        if count_storage_location_references(database, storage_location_id)? > 0 {
+            return Err("存放位置正在被商品使用，请先迁移关联商品".to_string());
+        }
+        let mut statement = database.prepare("DELETE FROM storage_locations WHERE id = ?")?;
+        statement.bind_text(1, storage_location_id)?;
+        statement.step_done()
+    })
+}
+
+fn migrate_and_delete_product_storage_location_at_path(
+    path: &Path,
+    source_storage_location_id: &str,
+    target_storage_location_id: &str,
+    updated_at: &str,
+) -> Result<AmberProductState, String> {
+    if source_storage_location_id == target_storage_location_id {
+        return Err("迁移目标不能是当前存放位置".to_string());
+    }
+
+    mutate_state_at_path(path, |database| {
+        ensure_storage_location_exists(database, source_storage_location_id)?;
+        ensure_storage_location_exists(database, target_storage_location_id)?;
+        let mut update_statement =
+            database.prepare("UPDATE items SET storage_location_id = ?, updated_at = ? WHERE storage_location_id = ?")?;
+        update_statement.bind_text(1, target_storage_location_id)?;
+        update_statement.bind_text(2, updated_at)?;
+        update_statement.bind_text(3, source_storage_location_id)?;
+        update_statement.step_done()?;
+
+        let mut delete_statement =
+            database.prepare("DELETE FROM storage_locations WHERE id = ?")?;
+        delete_statement.bind_text(1, source_storage_location_id)?;
+        delete_statement.step_done()
+    })
+}
+
+fn update_product_default_reminder_days_at_path(
+    path: &Path,
+    default_reminder_days: i64,
+) -> Result<AmberProductState, String> {
+    mutate_state_at_path(path, |database| {
+        let mut statement =
+            database.prepare("UPDATE settings SET default_reminder_days = ? WHERE id = 1")?;
+        statement.bind_i64(1, default_reminder_days)?;
+        statement.step_done()
+    })
+}
+
+fn mutate_state_at_path<F>(path: &Path, mutation: F) -> Result<AmberProductState, String>
+where
+    F: FnOnce(&Database) -> Result<(), String>,
+{
+    ensure_parent_dir(path)?;
+    let database = Database::open(path)?;
+    initialize_schema(&database)?;
+    seed_database_if_needed(&database)?;
+    database.exec("BEGIN IMMEDIATE")?;
+
+    let result = (|| {
+        mutation(&database)?;
+        let state = read_state(&database)?;
+        database.exec("COMMIT")?;
+        Ok(state)
+    })();
+
+    if result.is_err() {
+        let _ = database.exec("ROLLBACK");
+    }
+
+    result
+}
+
 fn product_db_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let data_dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     fs::create_dir_all(&data_dir).map_err(|error| error.to_string())?;
     Ok(data_dir.join("amber.sqlite3"))
 }
@@ -223,7 +643,15 @@ fn seed_database_if_needed(database: &Database) -> Result<(), String> {
         return Ok(());
     }
 
-    replace_state(database, &initial_state())
+    database.exec("BEGIN IMMEDIATE")?;
+    let result = replace_state(database, &initial_state());
+    match result {
+        Ok(()) => database.exec("COMMIT"),
+        Err(error) => {
+            let _ = database.exec("ROLLBACK");
+            Err(error)
+        }
+    }
 }
 
 fn replace_state(database: &Database, state: &AmberProductState) -> Result<(), String> {
@@ -242,55 +670,107 @@ fn replace_state(database: &Database, state: &AmberProductState) -> Result<(), S
     settings_statement.step_done()?;
 
     for category in &state.categories {
-        let mut statement = database.prepare(
-            "INSERT INTO categories (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-        )?;
-        statement.bind_text(1, &category.id)?;
-        statement.bind_text(2, &category.name)?;
-        statement.bind_text(3, &category.created_at)?;
-        statement.bind_text(4, &category.updated_at)?;
-        statement.step_done()?;
+        insert_category(database, category)?;
     }
 
     for location in &state.storage_locations {
-        let mut statement = database.prepare(
-            "INSERT INTO storage_locations (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-        )?;
-        statement.bind_text(1, &location.id)?;
-        statement.bind_text(2, &location.name)?;
-        statement.bind_text(3, &location.created_at)?;
-        statement.bind_text(4, &location.updated_at)?;
-        statement.step_done()?;
+        insert_storage_location(database, location)?;
     }
 
     for item in &state.items {
-        let mut statement = database.prepare(
-            "
-            INSERT INTO items (
-                id, name, category_id, production_date, shelf_life_value, shelf_life_unit,
-                quantity, storage_location_id, note, custom_reminder_days, user_status,
-                deleted_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ",
-        )?;
-        statement.bind_text(1, &item.id)?;
-        statement.bind_text(2, &item.name)?;
-        statement.bind_text(3, &item.category_id)?;
-        statement.bind_text(4, &item.production_date)?;
-        statement.bind_i64(5, item.shelf_life_value)?;
-        statement.bind_text(6, &item.shelf_life_unit)?;
-        statement.bind_optional_f64(7, item.quantity)?;
-        statement.bind_optional_text(8, item.storage_location_id.as_deref())?;
-        statement.bind_optional_text(9, item.note.as_deref())?;
-        statement.bind_optional_i64(10, item.custom_reminder_days)?;
-        statement.bind_text(11, &item.user_status)?;
-        statement.bind_optional_text(12, item.deleted_at.as_deref())?;
-        statement.bind_text(13, &item.created_at)?;
-        statement.bind_text(14, &item.updated_at)?;
-        statement.step_done()?;
+        insert_item(database, item)?;
     }
 
     Ok(())
+}
+
+fn insert_category(database: &Database, category: &Category) -> Result<(), String> {
+    let mut statement = database
+        .prepare("INSERT INTO categories (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)")?;
+    statement.bind_text(1, &category.id)?;
+    statement.bind_text(2, &category.name)?;
+    statement.bind_text(3, &category.created_at)?;
+    statement.bind_text(4, &category.updated_at)?;
+    statement.step_done()
+}
+
+fn insert_storage_location(database: &Database, location: &StorageLocation) -> Result<(), String> {
+    let mut statement = database.prepare(
+        "INSERT INTO storage_locations (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+    )?;
+    statement.bind_text(1, &location.id)?;
+    statement.bind_text(2, &location.name)?;
+    statement.bind_text(3, &location.created_at)?;
+    statement.bind_text(4, &location.updated_at)?;
+    statement.step_done()
+}
+
+fn insert_item(database: &Database, item: &Item) -> Result<(), String> {
+    let mut statement = database.prepare(
+        "
+        INSERT INTO items (
+            id, name, category_id, production_date, shelf_life_value, shelf_life_unit,
+            quantity, storage_location_id, note, custom_reminder_days, user_status,
+            deleted_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ",
+    )?;
+    bind_item_fields(&mut statement, item)?;
+    statement.step_done()
+}
+
+fn update_item(database: &Database, item: &Item) -> Result<(), String> {
+    let mut statement = database.prepare(
+        "
+        UPDATE items SET
+            name = ?,
+            category_id = ?,
+            production_date = ?,
+            shelf_life_value = ?,
+            shelf_life_unit = ?,
+            quantity = ?,
+            storage_location_id = ?,
+            note = ?,
+            custom_reminder_days = ?,
+            user_status = ?,
+            deleted_at = ?,
+            created_at = ?,
+            updated_at = ?
+        WHERE id = ?
+        ",
+    )?;
+    statement.bind_text(1, &item.name)?;
+    statement.bind_text(2, &item.category_id)?;
+    statement.bind_text(3, &item.production_date)?;
+    statement.bind_i64(4, item.shelf_life_value)?;
+    statement.bind_text(5, &item.shelf_life_unit)?;
+    statement.bind_optional_f64(6, item.quantity)?;
+    statement.bind_optional_text(7, item.storage_location_id.as_deref())?;
+    statement.bind_optional_text(8, item.note.as_deref())?;
+    statement.bind_optional_i64(9, item.custom_reminder_days)?;
+    statement.bind_text(10, &item.user_status)?;
+    statement.bind_optional_text(11, item.deleted_at.as_deref())?;
+    statement.bind_text(12, &item.created_at)?;
+    statement.bind_text(13, &item.updated_at)?;
+    statement.bind_text(14, &item.id)?;
+    statement.step_done()
+}
+
+fn bind_item_fields(statement: &mut Statement, item: &Item) -> Result<(), String> {
+    statement.bind_text(1, &item.id)?;
+    statement.bind_text(2, &item.name)?;
+    statement.bind_text(3, &item.category_id)?;
+    statement.bind_text(4, &item.production_date)?;
+    statement.bind_i64(5, item.shelf_life_value)?;
+    statement.bind_text(6, &item.shelf_life_unit)?;
+    statement.bind_optional_f64(7, item.quantity)?;
+    statement.bind_optional_text(8, item.storage_location_id.as_deref())?;
+    statement.bind_optional_text(9, item.note.as_deref())?;
+    statement.bind_optional_i64(10, item.custom_reminder_days)?;
+    statement.bind_text(11, &item.user_status)?;
+    statement.bind_optional_text(12, item.deleted_at.as_deref())?;
+    statement.bind_text(13, &item.created_at)?;
+    statement.bind_text(14, &item.updated_at)
 }
 
 fn read_state(database: &Database) -> Result<AmberProductState, String> {
@@ -318,8 +798,8 @@ fn read_settings(database: &Database) -> Result<Settings, String> {
 }
 
 fn read_categories(database: &Database) -> Result<Vec<Category>, String> {
-    let mut statement =
-        database.prepare("SELECT id, name, created_at, updated_at FROM categories ORDER BY rowid")?;
+    let mut statement = database
+        .prepare("SELECT id, name, created_at, updated_at FROM categories ORDER BY rowid")?;
     let mut categories = Vec::new();
 
     while let SqlStep::Row = statement.step()? {
@@ -335,8 +815,8 @@ fn read_categories(database: &Database) -> Result<Vec<Category>, String> {
 }
 
 fn read_storage_locations(database: &Database) -> Result<Vec<StorageLocation>, String> {
-    let mut statement =
-        database.prepare("SELECT id, name, created_at, updated_at FROM storage_locations ORDER BY rowid")?;
+    let mut statement = database
+        .prepare("SELECT id, name, created_at, updated_at FROM storage_locations ORDER BY rowid")?;
     let mut storage_locations = Vec::new();
 
     while let SqlStep::Row = statement.step()? {
@@ -422,6 +902,84 @@ fn query_count(database: &Database, sql: &str) -> Result<i64, String> {
     }
 }
 
+fn query_count_by_text(database: &Database, sql: &str, value: &str) -> Result<i64, String> {
+    let mut statement = database.prepare(sql)?;
+    statement.bind_text(1, value)?;
+    match statement.step()? {
+        SqlStep::Row => Ok(statement.column_i64(0)),
+        SqlStep::Done => Ok(0),
+    }
+}
+
+fn count_category_references(database: &Database, category_id: &str) -> Result<i64, String> {
+    query_count_by_text(
+        database,
+        "SELECT COUNT(*) FROM items WHERE category_id = ?",
+        category_id,
+    )
+}
+
+fn count_storage_location_references(
+    database: &Database,
+    storage_location_id: &str,
+) -> Result<i64, String> {
+    query_count_by_text(
+        database,
+        "SELECT COUNT(*) FROM items WHERE storage_location_id = ?",
+        storage_location_id,
+    )
+}
+
+fn ensure_item_exists(database: &Database, item_id: &str) -> Result<(), String> {
+    if query_count_by_text(database, "SELECT COUNT(*) FROM items WHERE id = ?", item_id)? == 0 {
+        return Err("商品不存在".to_string());
+    }
+
+    Ok(())
+}
+
+fn ensure_deleted_item_exists(database: &Database, item_id: &str) -> Result<(), String> {
+    if query_count_by_text(
+        database,
+        "SELECT COUNT(*) FROM items WHERE id = ? AND deleted_at IS NOT NULL",
+        item_id,
+    )? == 0
+    {
+        return Err("商品需要先进入回收站才能永久删除".to_string());
+    }
+
+    Ok(())
+}
+
+fn ensure_category_exists(database: &Database, category_id: &str) -> Result<(), String> {
+    if query_count_by_text(
+        database,
+        "SELECT COUNT(*) FROM categories WHERE id = ?",
+        category_id,
+    )? == 0
+    {
+        return Err("分类不存在".to_string());
+    }
+
+    Ok(())
+}
+
+fn ensure_storage_location_exists(
+    database: &Database,
+    storage_location_id: &str,
+) -> Result<(), String> {
+    if query_count_by_text(
+        database,
+        "SELECT COUNT(*) FROM storage_locations WHERE id = ?",
+        storage_location_id,
+    )? == 0
+    {
+        return Err("存放位置不存在".to_string());
+    }
+
+    Ok(())
+}
+
 struct Database {
     raw: *mut Sqlite3,
 }
@@ -483,15 +1041,17 @@ impl Database {
     fn prepare(&self, sql: &str) -> Result<Statement, String> {
         let sql = CString::new(sql).map_err(|error| error.to_string())?;
         let mut raw = ptr::null_mut();
-        let code = unsafe {
-            sqlite3_prepare_v2(self.raw, sql.as_ptr(), -1, &mut raw, ptr::null_mut())
-        };
+        let code =
+            unsafe { sqlite3_prepare_v2(self.raw, sql.as_ptr(), -1, &mut raw, ptr::null_mut()) };
 
         if code != SQLITE_OK {
             return Err(sqlite_error(self.raw));
         }
 
-        Ok(Statement { database: self.raw, raw })
+        Ok(Statement {
+            database: self.raw,
+            raw,
+        })
     }
 }
 
@@ -516,7 +1076,8 @@ struct Statement {
 impl Statement {
     fn bind_text(&mut self, index: c_int, value: &str) -> Result<(), String> {
         let value = CString::new(value).map_err(|error| error.to_string())?;
-        let code = unsafe { sqlite3_bind_text(self.raw, index, value.as_ptr(), -1, sqlite_transient()) };
+        let code =
+            unsafe { sqlite3_bind_text(self.raw, index, value.as_ptr(), -1, sqlite_transient()) };
         self.check_bind(code)
     }
 
@@ -709,10 +1270,244 @@ mod tests {
         assert_eq!(load_state_from_path(&path).expect("state reloads"), state);
     }
 
+    #[test]
+    fn creates_product_item_incrementally_without_replacing_existing_rows() {
+        let path =
+            test_db_path("creates_product_item_incrementally_without_replacing_existing_rows");
+        let _ = fs::remove_file(&path);
+        let existing_category = test_category("category-food", "食品");
+        let existing_item = test_item("item-1", "牛奶", "category-food", None);
+        let initial = test_state(
+            vec![existing_category.clone()],
+            Vec::new(),
+            vec![existing_item.clone()],
+            30,
+        );
+        save_state_to_path(&path, &initial).expect("initial state saves");
+
+        let new_category = test_category("category-snacks", "零食");
+        let new_location = test_location("location-pantry", "储物柜");
+        let new_item = test_item(
+            "item-2",
+            "饼干",
+            &new_category.id,
+            Some(new_location.id.as_str()),
+        );
+
+        let state = create_product_item_at_path(
+            &path,
+            new_item.clone(),
+            Some(new_category.clone()),
+            Some(new_location.clone()),
+        )
+        .expect("item is created");
+
+        assert_eq!(
+            state
+                .items
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["item-1", "item-2"]
+        );
+        assert!(state
+            .categories
+            .iter()
+            .any(|category| category == &existing_category));
+        assert!(state
+            .categories
+            .iter()
+            .any(|category| category == &new_category));
+        assert_eq!(state.storage_locations, vec![new_location]);
+        assert_eq!(state.settings.default_reminder_days, 30);
+    }
+
+    #[test]
+    fn updates_product_item_incrementally_without_removing_other_rows() {
+        let path = test_db_path("updates_product_item_incrementally_without_removing_other_rows");
+        let _ = fs::remove_file(&path);
+        let category = test_category("category-food", "食品");
+        let item_one = test_item("item-1", "牛奶", &category.id, None);
+        let item_two = test_item("item-2", "酸奶", &category.id, None);
+        save_state_to_path(
+            &path,
+            &test_state(
+                vec![category],
+                Vec::new(),
+                vec![item_one.clone(), item_two.clone()],
+                30,
+            ),
+        )
+        .expect("initial state saves");
+
+        let mut updated = item_one.clone();
+        updated.name = "低温牛奶".to_string();
+        updated.updated_at = "2026-01-03T00:00:00.000Z".to_string();
+
+        let state =
+            update_product_item_at_path(&path, updated.clone(), None, None).expect("item updates");
+
+        assert!(state.items.iter().any(|item| item == &updated));
+        assert!(state.items.iter().any(|item| item == &item_two));
+    }
+
+    #[test]
+    fn migrates_and_deletes_product_category_without_rewriting_all_state() {
+        let path =
+            test_db_path("migrates_and_deletes_product_category_without_rewriting_all_state");
+        let _ = fs::remove_file(&path);
+        let source = test_category("category-source", "旧分类");
+        let target = test_category("category-target", "新分类");
+        let item = test_item("item-1", "罐头", &source.id, None);
+        save_state_to_path(
+            &path,
+            &test_state(
+                vec![source.clone(), target.clone()],
+                Vec::new(),
+                vec![item],
+                30,
+            ),
+        )
+        .expect("initial state saves");
+
+        let state = migrate_and_delete_product_category_at_path(
+            &path,
+            &source.id,
+            &target.id,
+            "2026-01-04T00:00:00.000Z",
+        )
+        .expect("category migrates");
+
+        assert!(!state
+            .categories
+            .iter()
+            .any(|category| category.id == source.id));
+        assert!(state.categories.iter().any(|category| category == &target));
+        assert_eq!(state.items[0].category_id, target.id);
+        assert_eq!(state.items[0].updated_at, "2026-01-04T00:00:00.000Z");
+    }
+
+    #[test]
+    fn updates_default_reminder_days_without_replacing_items() {
+        let path = test_db_path("updates_default_reminder_days_without_replacing_items");
+        let _ = fs::remove_file(&path);
+        let category = test_category("category-food", "食品");
+        let item = test_item("item-1", "牛奶", &category.id, None);
+        save_state_to_path(
+            &path,
+            &test_state(vec![category.clone()], Vec::new(), vec![item.clone()], 30),
+        )
+        .expect("initial state saves");
+
+        let state =
+            update_product_default_reminder_days_at_path(&path, 14).expect("settings update");
+
+        assert_eq!(state.settings.default_reminder_days, 14);
+        assert_eq!(state.items, vec![item]);
+        assert_eq!(state.categories, vec![category]);
+    }
+
+    #[test]
+    fn rolls_back_created_references_when_incremental_item_write_fails() {
+        let path = test_db_path("rolls_back_created_references_when_incremental_item_write_fails");
+        let _ = fs::remove_file(&path);
+        let existing_category = test_category("category-food", "食品");
+        let existing_item = test_item("item-1", "牛奶", &existing_category.id, None);
+        let initial = test_state(
+            vec![existing_category.clone()],
+            Vec::new(),
+            vec![existing_item.clone()],
+            30,
+        );
+        save_state_to_path(&path, &initial).expect("initial state saves");
+
+        let attempted_category = test_category("category-snacks", "零食");
+        let attempted_location = test_location("location-pantry", "储物柜");
+        let duplicate_item = test_item(
+            &existing_item.id,
+            "重复牛奶",
+            &attempted_category.id,
+            Some(attempted_location.id.as_str()),
+        );
+
+        let error = create_product_item_at_path(
+            &path,
+            duplicate_item,
+            Some(attempted_category.clone()),
+            Some(attempted_location.clone()),
+        )
+        .expect_err("duplicate item fails");
+
+        assert!(error.contains("UNIQUE") || error.contains("constraint"));
+        let state = load_state_from_path(&path).expect("state reloads");
+        assert_eq!(state.items, vec![existing_item]);
+        assert_eq!(state.categories, vec![existing_category]);
+        assert!(state.storage_locations.is_empty());
+    }
+
     fn test_db_path(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("target")
             .join("test-dbs")
             .join(format!("{}-{}.sqlite3", name, std::process::id()))
+    }
+
+    fn test_state(
+        categories: Vec<Category>,
+        storage_locations: Vec<StorageLocation>,
+        items: Vec<Item>,
+        default_reminder_days: i64,
+    ) -> AmberProductState {
+        AmberProductState {
+            version: 1,
+            categories,
+            storage_locations,
+            settings: Settings {
+                default_reminder_days,
+            },
+            items,
+        }
+    }
+
+    fn test_category(id: &str, name: &str) -> Category {
+        Category {
+            id: id.to_string(),
+            name: name.to_string(),
+            created_at: "2026-01-01T00:00:00.000Z".to_string(),
+            updated_at: "2026-01-01T00:00:00.000Z".to_string(),
+        }
+    }
+
+    fn test_location(id: &str, name: &str) -> StorageLocation {
+        StorageLocation {
+            id: id.to_string(),
+            name: name.to_string(),
+            created_at: "2026-01-01T00:00:00.000Z".to_string(),
+            updated_at: "2026-01-01T00:00:00.000Z".to_string(),
+        }
+    }
+
+    fn test_item(
+        id: &str,
+        name: &str,
+        category_id: &str,
+        storage_location_id: Option<&str>,
+    ) -> Item {
+        Item {
+            id: id.to_string(),
+            name: name.to_string(),
+            category_id: category_id.to_string(),
+            production_date: "2026-01-01".to_string(),
+            shelf_life_value: 30,
+            shelf_life_unit: "day".to_string(),
+            quantity: Some(1.0),
+            storage_location_id: storage_location_id.map(ToString::to_string),
+            note: None,
+            custom_reminder_days: None,
+            user_status: "active".to_string(),
+            deleted_at: None,
+            created_at: "2026-01-01T00:00:00.000Z".to_string(),
+            updated_at: "2026-01-01T00:00:00.000Z".to_string(),
+        }
     }
 }

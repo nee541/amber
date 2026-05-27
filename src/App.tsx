@@ -32,7 +32,9 @@ import {
   formatQuantity,
   getReminderItems,
   sortItemsForDefaultList,
+  type Category,
   type DerivedItem,
+  type StorageLocation,
   type ItemUserStatus,
   type ShelfLifeUnit,
   type SystemStatus,
@@ -153,18 +155,25 @@ function App() {
   const selectedItem = derivedItems.find((item) => item.id === selectedItemId);
   const previewItem = useMemo(() => createFormPreview(form, state.settings.defaultReminderDays, today), [form, state, today]);
 
-  function commit(result: ActionResult, successText?: string) {
+  async function commit(
+    result: ActionResult,
+    persist: (nextState: AmberProductState) => Promise<AmberProductState>,
+    successText?: string,
+  ) {
     if (result.errors.length > 0) {
       setBanner({ tone: "error", text: result.errors.join("；") });
       return false;
     }
 
-    setState(result.state);
-    void repository.save(result.state).catch((error: unknown) => {
+    try {
+      const savedState = await persist(result.state);
+      setState(savedState);
+      setBanner(successText ? { tone: "success", text: successText } : undefined);
+      return true;
+    } catch (error: unknown) {
       setBanner({ tone: "error", text: `保存本地数据库失败：${getErrorMessage(error)}` });
-    });
-    setBanner(successText ? { tone: "success", text: successText } : undefined);
-    return true;
+      return false;
+    }
   }
 
   function openCreateForm() {
@@ -181,14 +190,28 @@ function App() {
     setView("items");
   }
 
-  function submitForm(event: FormEvent<HTMLFormElement>) {
+  async function submitForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const input = formToInput(form);
     const context = createActionContext();
+    const previousState = state;
     const result = editingItemId
       ? editProduct(state, editingItemId, input, context)
       : addProduct(state, input, context);
-    const saved = commit(result, editingItemId ? "商品已更新" : "商品已新增");
+    const saved = await commit(
+      result,
+      (nextState) => {
+        if (!result.item) {
+          return Promise.resolve(nextState);
+        }
+
+        const references = findCreatedItemReferences(previousState, nextState, result.item.categoryId, result.item.storageLocationId);
+        return editingItemId
+          ? repository.updateItem(result.item, references)
+          : repository.createItem(result.item, references);
+      },
+      editingItemId ? "商品已更新" : "商品已新增",
+    );
 
     if (saved) {
       const itemId = result.item?.id ?? editingItemId;
@@ -204,18 +227,39 @@ function App() {
   }
 
   function markStatus(itemId: string, status: ItemUserStatus) {
-    commit(setProductUserStatus(state, itemId, status, createActionContext()), "商品状态已更新");
+    const context = createActionContext();
+    void commit(
+      setProductUserStatus(state, itemId, status, context),
+      () => repository.setItemUserStatus(itemId, status, context.now),
+      "商品状态已更新",
+    );
   }
 
   function moveToTrash(itemId: string) {
-    commit(moveProductToTrash(state, itemId, createActionContext()), "商品已移入回收站");
-    setSelectedItemId(undefined);
+    const context = createActionContext();
+    void commit(
+      moveProductToTrash(state, itemId, context),
+      () => repository.moveItemToTrash(itemId, context.now, context.now),
+      "商品已移入回收站",
+    ).then((saved) => {
+      if (saved) {
+        setSelectedItemId(undefined);
+      }
+    });
   }
 
   function restoreFromTrash(itemId: string) {
-    commit(restoreProductFromTrash(state, itemId, createActionContext()), "商品已恢复");
-    setSelectedItemId(itemId);
-    setView("items");
+    const context = createActionContext();
+    void commit(
+      restoreProductFromTrash(state, itemId, context),
+      () => repository.restoreItemFromTrash(itemId, context.now),
+      "商品已恢复",
+    ).then((saved) => {
+      if (saved) {
+        setSelectedItemId(itemId);
+        setView("items");
+      }
+    });
   }
 
   function permanentlyDelete(itemId: string) {
@@ -223,24 +267,49 @@ function App() {
       return;
     }
 
-    commit(permanentlyDeleteProduct(state, itemId), "商品已永久删除");
-    setSelectedItemId(undefined);
+    void commit(
+      permanentlyDeleteProduct(state, itemId),
+      () => repository.permanentlyDeleteItem(itemId),
+      "商品已永久删除",
+    ).then((saved) => {
+      if (saved) {
+        setSelectedItemId(undefined);
+      }
+    });
   }
 
   function applyGlobalReminder(days: number) {
-    commit(updateDefaultReminderDays(state, days), "全局提醒规则已更新");
+    void commit(
+      updateDefaultReminderDays(state, days),
+      () => repository.updateDefaultReminderDays(days),
+      "全局提醒规则已更新",
+    );
   }
 
-  function createNamedCategory(event: FormEvent<HTMLFormElement>) {
+  async function createNamedCategory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (commit(createCategory(state, newCategoryName, createActionContext()), "分类已创建")) {
+    const result = createCategory(state, newCategoryName, createActionContext());
+    if (
+      await commit(
+        result,
+        (nextState) => repository.createCategory(requireCreatedCategory(state, nextState)),
+        "分类已创建",
+      )
+    ) {
       setNewCategoryName("");
     }
   }
 
-  function createNamedLocation(event: FormEvent<HTMLFormElement>) {
+  async function createNamedLocation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (commit(createStorageLocation(state, newLocationName, createActionContext()), "存放位置已创建")) {
+    const result = createStorageLocation(state, newLocationName, createActionContext());
+    if (
+      await commit(
+        result,
+        (nextState) => repository.createStorageLocation(requireCreatedStorageLocation(state, nextState)),
+        "存放位置已创建",
+      )
+    ) {
       setNewLocationName("");
     }
   }
@@ -473,19 +542,39 @@ function App() {
             onNewNameChange={setNewCategoryName}
             onCreate={createNamedCategory}
             onDraftChange={(id, value) => setCategoryDrafts((current) => ({ ...current, [id]: value }))}
-            onRename={(id, value) => {
-              if (commit(renameCategory(state, id, value, createActionContext()), "分类已重命名")) {
+            onRename={async (id, value) => {
+              const context = createActionContext();
+              const result = renameCategory(state, id, value, context);
+              if (
+                await commit(
+                  result,
+                  (nextState) => {
+                    const category = requireCategory(nextState, id);
+                    return repository.renameCategory(id, category.name, category.updatedAt);
+                  },
+                  "分类已重命名",
+                )
+              ) {
                 setCategoryDrafts((current) => removeDraft(current, id));
               }
             }}
-            onDelete={(id) => commit(deleteCategory(state, id), "分类已删除")}
+            onDelete={(id) => {
+              void commit(deleteCategory(state, id), () => repository.deleteCategory(id), "分类已删除");
+            }}
             migrationTargets={categoryMigrationTargets}
             migrationOptions={state.categories}
             onMigrationTargetChange={(id, value) =>
               setCategoryMigrationTargets((current) => ({ ...current, [id]: value }))
             }
-            onMigrateDelete={(id, targetId) => {
-              if (commit(migrateAndDeleteCategory(state, id, targetId, createActionContext()), "分类已迁移并删除")) {
+            onMigrateDelete={async (id, targetId) => {
+              const context = createActionContext();
+              if (
+                await commit(
+                  migrateAndDeleteCategory(state, id, targetId, context),
+                  () => repository.migrateAndDeleteCategory(id, targetId, context.now),
+                  "分类已迁移并删除",
+                )
+              ) {
                 setCategoryMigrationTargets((current) => removeDraft(current, id));
               }
             }}
@@ -503,21 +592,36 @@ function App() {
             onNewNameChange={setNewLocationName}
             onCreate={createNamedLocation}
             onDraftChange={(id, value) => setLocationDrafts((current) => ({ ...current, [id]: value }))}
-            onRename={(id, value) => {
-              if (commit(renameStorageLocation(state, id, value, createActionContext()), "存放位置已重命名")) {
+            onRename={async (id, value) => {
+              const context = createActionContext();
+              const result = renameStorageLocation(state, id, value, context);
+              if (
+                await commit(
+                  result,
+                  (nextState) => {
+                    const location = requireStorageLocation(nextState, id);
+                    return repository.renameStorageLocation(id, location.name, location.updatedAt);
+                  },
+                  "存放位置已重命名",
+                )
+              ) {
                 setLocationDrafts((current) => removeDraft(current, id));
               }
             }}
-            onDelete={(id) => commit(deleteStorageLocation(state, id), "存放位置已删除")}
+            onDelete={(id) => {
+              void commit(deleteStorageLocation(state, id), () => repository.deleteStorageLocation(id), "存放位置已删除");
+            }}
             migrationTargets={locationMigrationTargets}
             migrationOptions={state.storageLocations}
             onMigrationTargetChange={(id, value) =>
               setLocationMigrationTargets((current) => ({ ...current, [id]: value }))
             }
-            onMigrateDelete={(id, targetId) => {
+            onMigrateDelete={async (id, targetId) => {
+              const context = createActionContext();
               if (
-                commit(
-                  migrateAndDeleteStorageLocation(state, id, targetId, createActionContext()),
+                await commit(
+                  migrateAndDeleteStorageLocation(state, id, targetId, context),
+                  () => repository.migrateAndDeleteStorageLocation(id, targetId, context.now),
                   "存放位置已迁移并删除",
                 )
               ) {
@@ -1262,6 +1366,64 @@ function countItemsByReference(
   id: string,
 ): number {
   return items.filter((item) => item[key] === id).length;
+}
+
+function findCreatedItemReferences(
+  previousState: AmberProductState,
+  nextState: AmberProductState,
+  categoryId: string,
+  storageLocationId: string | undefined,
+): { category?: Category; storageLocation?: StorageLocation } {
+  return {
+    category: previousState.categories.some((category) => category.id === categoryId)
+      ? undefined
+      : nextState.categories.find((category) => category.id === categoryId),
+    storageLocation:
+      storageLocationId === undefined ||
+      previousState.storageLocations.some((location) => location.id === storageLocationId)
+        ? undefined
+        : nextState.storageLocations.find((location) => location.id === storageLocationId),
+  };
+}
+
+function requireCreatedCategory(previousState: AmberProductState, nextState: AmberProductState): Category {
+  const category = nextState.categories.find(
+    (entry) => !previousState.categories.some((previous) => previous.id === entry.id),
+  );
+  if (!category) {
+    throw new Error("未找到新建分类");
+  }
+
+  return category;
+}
+
+function requireCreatedStorageLocation(previousState: AmberProductState, nextState: AmberProductState): StorageLocation {
+  const location = nextState.storageLocations.find(
+    (entry) => !previousState.storageLocations.some((previous) => previous.id === entry.id),
+  );
+  if (!location) {
+    throw new Error("未找到新建存放位置");
+  }
+
+  return location;
+}
+
+function requireCategory(state: AmberProductState, categoryId: string): Category {
+  const category = state.categories.find((entry) => entry.id === categoryId);
+  if (!category) {
+    throw new Error("分类不存在");
+  }
+
+  return category;
+}
+
+function requireStorageLocation(state: AmberProductState, storageLocationId: string): StorageLocation {
+  const location = state.storageLocations.find((entry) => entry.id === storageLocationId);
+  if (!location) {
+    throw new Error("存放位置不存在");
+  }
+
+  return location;
 }
 
 function parseOptionalNumber(value: string): number | undefined {
