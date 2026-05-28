@@ -78,6 +78,25 @@ const shelfLifeUnitLabels: Record<ShelfLifeUnit, string> = {
   year: "年",
 };
 
+const viewMeta: Record<AppView, { title: string; description: string }> = {
+  items: {
+    title: "商品保质期",
+    description: "记录生产日期和保质期，优先处理临期与已过期商品。",
+  },
+  reminders: {
+    title: "提醒",
+    description: "集中查看需要处理的临期和已过期商品。",
+  },
+  settings: {
+    title: "设置",
+    description: "管理提醒规则、分类、存放位置和回收站。",
+  },
+  trash: {
+    title: "回收站",
+    description: "恢复误删商品，或在确认后永久删除。",
+  },
+};
+
 function App() {
   const repository = useMemo(() => createRemoteProductRepository(), []);
   const [state, setState] = useState<AmberProductState>(() => createInitialProductState());
@@ -86,6 +105,7 @@ function App() {
   const [selectedItemId, setSelectedItemId] = useState<string>();
   const [editingItemId, setEditingItemId] = useState<string>();
   const [formOpen, setFormOpen] = useState(false);
+  const [confirmPermanentDeleteItemId, setConfirmPermanentDeleteItemId] = useState<string>();
   const [form, setForm] = useState<ItemFormState>(() => createEmptyForm(getTodayString(), "食品"));
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -97,9 +117,8 @@ function App() {
   const [newLocationName, setNewLocationName] = useState("");
   const [categoryDrafts, setCategoryDrafts] = useState<Record<string, string>>({});
   const [locationDrafts, setLocationDrafts] = useState<Record<string, string>>({});
-  const [categoryMigrationTargets, setCategoryMigrationTargets] = useState<Record<string, string>>({});
-  const [locationMigrationTargets, setLocationMigrationTargets] = useState<Record<string, string>>({});
   const today = getTodayString();
+  const currentViewMeta = viewMeta[view];
 
   useEffect(() => {
     let active = true;
@@ -153,7 +172,30 @@ function App() {
     [derivedItems],
   );
   const selectedItem = derivedItems.find((item) => item.id === selectedItemId);
+  const permanentDeleteItem = trashItems.find((item) => item.id === confirmPermanentDeleteItemId);
   const previewItem = useMemo(() => createFormPreview(form, state.settings.defaultReminderDays, today), [form, state, today]);
+
+  useEffect(() => {
+    if (!formOpen && !confirmPermanentDeleteItemId) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      if (confirmPermanentDeleteItemId) {
+        setConfirmPermanentDeleteItemId(undefined);
+        return;
+      }
+
+      closeProductForm();
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [confirmPermanentDeleteItemId, formOpen]);
 
   async function commit(
     result: ActionResult,
@@ -185,9 +227,15 @@ function App() {
 
   function openEditForm(item: DerivedItem) {
     setEditingItemId(item.id);
+    setSelectedItemId(item.id);
     setForm(createFormFromItem(item));
     setFormOpen(true);
     setView("items");
+  }
+
+  function closeProductForm() {
+    setEditingItemId(undefined);
+    setFormOpen(false);
   }
 
   async function submitForm(event: FormEvent<HTMLFormElement>) {
@@ -262,8 +310,8 @@ function App() {
     });
   }
 
-  function permanentlyDelete(itemId: string) {
-    if (!window.confirm("确认永久删除该商品？此操作无法撤销。")) {
+  function permanentlyDelete(itemId?: string) {
+    if (!itemId) {
       return;
     }
 
@@ -274,6 +322,7 @@ function App() {
     ).then((saved) => {
       if (saved) {
         setSelectedItemId(undefined);
+        setConfirmPermanentDeleteItemId(undefined);
       }
     });
   }
@@ -323,60 +372,93 @@ function App() {
 
   return (
     <main className="app-shell">
-      <header className="app-header">
-        <div className="app-title">
-          <p className="eyebrow">Amber</p>
-          <h1>商品保质期</h1>
-          <p>记录生产日期和保质期，优先处理临期与已过期商品。</p>
+      <aside className="sidebar" aria-label="应用导航">
+        <div className="brand-card">
+          <span className="brand-mark" aria-hidden="true">
+            A
+          </span>
+          <div>
+            <p className="eyebrow">Amber</p>
+            <h1>物品档案</h1>
+          </div>
         </div>
-        <div className="header-summary" aria-label="保质期概览">
-          <SummaryPill label="活跃商品" value={activeItemCount} />
-          <SummaryPill label="已过期" value={expiredReminderItems.length} tone="expired" />
-          <SummaryPill label="临期" value={warningReminderItems.length} tone="warning" />
+
+        <nav className="tabs" aria-label="主导航">
+          <button
+            type="button"
+            className={view === "items" ? "active" : ""}
+            aria-current={view === "items" ? "page" : undefined}
+            onClick={() => setView("items")}
+          >
+            商品
+          </button>
+          <button
+            type="button"
+            className={view === "reminders" ? "active" : ""}
+            aria-current={view === "reminders" ? "page" : undefined}
+            onClick={() => setView("reminders")}
+          >
+            提醒
+            <span>{reminderItems.length}</span>
+          </button>
+          <button
+            type="button"
+            className={view === "settings" ? "active" : ""}
+            aria-current={view === "settings" ? "page" : undefined}
+            onClick={() => setView("settings")}
+          >
+            设置
+          </button>
+          <button
+            type="button"
+            className={view === "trash" ? "active" : ""}
+            aria-current={view === "trash" ? "page" : undefined}
+            onClick={() => setView("trash")}
+          >
+            回收站
+            <span>{trashItems.length}</span>
+          </button>
+        </nav>
+
+        <div className="sidebar-note">
+          <strong>本地优先</strong>
+          <span>结构化信息存入 SQLite，原始文件留在本机。</span>
         </div>
-        <button type="button" className="primary-action" onClick={openCreateForm}>
-          + 新增商品
-        </button>
-      </header>
+      </aside>
 
-      <nav className="tabs" aria-label="主导航">
-        <button
-          type="button"
-          className={view === "items" ? "active" : ""}
-          aria-current={view === "items" ? "page" : undefined}
-          onClick={() => setView("items")}
-        >
-          商品
-        </button>
-        <button
-          type="button"
-          className={view === "reminders" ? "active" : ""}
-          aria-current={view === "reminders" ? "page" : undefined}
-          onClick={() => setView("reminders")}
-        >
-          提醒
-          <span>{reminderItems.length}</span>
-        </button>
-        <button
-          type="button"
-          className={view === "settings" ? "active" : ""}
-          aria-current={view === "settings" ? "page" : undefined}
-          onClick={() => setView("settings")}
-        >
-          设置
-        </button>
-        <button
-          type="button"
-          className={view === "trash" ? "active" : ""}
-          aria-current={view === "trash" ? "page" : undefined}
-          onClick={() => setView("trash")}
-        >
-          回收站
-          <span>{trashItems.length}</span>
-        </button>
-      </nav>
+      <section className="app-main">
+        <header className="app-header">
+          <div className="app-title">
+            <p className="eyebrow">Personal inventory</p>
+            <h2>{currentViewMeta.title}</h2>
+            <p>{currentViewMeta.description}</p>
+          </div>
+          {view === "items" ? (
+            <div className="topbar-actions">
+              <label className="top-search">
+                <span className="visually-hidden">搜索商品</span>
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.currentTarget.value)}
+                  placeholder="搜索商品、分类或位置"
+                />
+              </label>
+              <button type="button" className="primary-action" onClick={openCreateForm}>
+                + 新增商品
+              </button>
+            </div>
+          ) : null}
+        </header>
 
-      {banner ? <p className={`banner ${banner.tone}`}>{banner.text}</p> : null}
+        {view === "items" ? (
+          <section className="header-summary" aria-label="保质期概览">
+            <SummaryPill label="活跃商品" value={activeItemCount} />
+            <SummaryPill label="已过期" value={expiredReminderItems.length} tone="expired" />
+            <SummaryPill label="临期" value={warningReminderItems.length} tone="warning" />
+          </section>
+        ) : null}
+
+        {banner ? <p className={`banner ${banner.tone}`}>{banner.text}</p> : null}
 
       {view === "items" ? (
         <section className="workspace">
@@ -389,10 +471,6 @@ function App() {
               <span className="count-chip">{visibleItemCount} 件</span>
             </div>
             <div className="toolbar">
-              <label>
-                <span>搜索</span>
-                <input value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder="商品名称" />
-              </label>
               <label>
                 <span>分类</span>
                 <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.currentTarget.value)}>
@@ -452,23 +530,8 @@ function App() {
             />
           </section>
 
-          <aside className={`detail-pane ${formOpen || selectedItem ? "" : "is-empty"}`} aria-label="商品详情">
-            {formOpen ? (
-              <ProductForm
-                form={form}
-                previewItem={previewItem}
-                categories={state.categories.map((category) => category.name)}
-                locations={state.storageLocations.map((location) => location.name)}
-                isEditing={Boolean(editingItemId)}
-                globalReminderDays={state.settings.defaultReminderDays}
-                onSubmit={submitForm}
-                onCancel={() => {
-                  setEditingItemId(undefined);
-                  setFormOpen(false);
-                }}
-                onChange={updateForm}
-              />
-            ) : selectedItem ? (
+          <aside className={`detail-pane ${selectedItem ? "" : "is-empty"}`} aria-label="商品详情">
+            {selectedItem ? (
               <ProductDetail
                 item={selectedItem}
                 onEdit={() => openEditForm(selectedItem)}
@@ -494,151 +557,143 @@ function App() {
 
       {view === "settings" ? (
         <section className="settings-layout">
-          <section className="settings-section">
-            <div className="section-heading">
-              <h2>全局提醒</h2>
-              <p>商品自定义提醒优先于全局规则。</p>
-            </div>
-            <div className="quick-values">
-              {[0, 7, 30, 90].map((days) => (
-                <button
-                  key={days}
-                  type="button"
-                  className={state.settings.defaultReminderDays === days ? "active" : ""}
-                  onClick={() => applyGlobalReminder(days)}
-                >
-                  {days === 0 ? "当天" : `${days} 天`}
-                </button>
-              ))}
-            </div>
-            <form
-              className="inline-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                applyGlobalReminder(Number(globalReminderDraft));
+          <div className="settings-column category-column">
+            <ManagementSection
+              title="分类"
+              emptyText="暂无分类"
+              items={state.categories.map((category) => ({
+                ...category,
+                usageCount: countItemsByReference(state.items, "categoryId", category.id),
+              }))}
+              drafts={categoryDrafts}
+              newName={newCategoryName}
+              onNewNameChange={setNewCategoryName}
+              onCreate={createNamedCategory}
+              onDraftChange={(id, value) => setCategoryDrafts((current) => ({ ...current, [id]: value }))}
+              onRename={async (id, value) => {
+                const context = createActionContext();
+                const result = renameCategory(state, id, value, context);
+                if (
+                  await commit(
+                    result,
+                    (nextState) => {
+                      const category = requireCategory(nextState, id);
+                      return repository.renameCategory(id, category.name, category.updatedAt);
+                    },
+                    "分类已重命名",
+                  )
+                ) {
+                  setCategoryDrafts((current) => removeDraft(current, id));
+                }
               }}
-            >
-              <input
-                aria-label="全局默认提醒提前天数"
-                type="number"
-                min="0"
-                step="1"
-                value={globalReminderDraft}
-                onChange={(event) => setGlobalReminderDraft(event.currentTarget.value)}
-              />
-              <button type="submit">保存</button>
-            </form>
-          </section>
-
-          <ManagementSection
-            title="分类"
-            emptyText="暂无分类"
-            items={state.categories.map((category) => ({
-              ...category,
-              usageCount: countItemsByReference(state.items, "categoryId", category.id),
-            }))}
-            drafts={categoryDrafts}
-            newName={newCategoryName}
-            onNewNameChange={setNewCategoryName}
-            onCreate={createNamedCategory}
-            onDraftChange={(id, value) => setCategoryDrafts((current) => ({ ...current, [id]: value }))}
-            onRename={async (id, value) => {
-              const context = createActionContext();
-              const result = renameCategory(state, id, value, context);
-              if (
-                await commit(
-                  result,
-                  (nextState) => {
-                    const category = requireCategory(nextState, id);
-                    return repository.renameCategory(id, category.name, category.updatedAt);
-                  },
-                  "分类已重命名",
-                )
-              ) {
-                setCategoryDrafts((current) => removeDraft(current, id));
-              }
-            }}
-            onDelete={(id) => {
-              void commit(deleteCategory(state, id), () => repository.deleteCategory(id), "分类已删除");
-            }}
-            migrationTargets={categoryMigrationTargets}
-            migrationOptions={state.categories}
-            onMigrationTargetChange={(id, value) =>
-              setCategoryMigrationTargets((current) => ({ ...current, [id]: value }))
-            }
-            onMigrateDelete={async (id, targetId) => {
-              const context = createActionContext();
-              if (
+              onDelete={(id) => {
+                void commit(deleteCategory(state, id), () => repository.deleteCategory(id), "分类已删除");
+              }}
+              migrationOptions={state.categories}
+              onMigrateDelete={async (id, targetId) => {
+                const context = createActionContext();
                 await commit(
                   migrateAndDeleteCategory(state, id, targetId, context),
                   () => repository.migrateAndDeleteCategory(id, targetId, context.now),
                   "分类已迁移并删除",
-                )
-              ) {
-                setCategoryMigrationTargets((current) => removeDraft(current, id));
-              }
-            }}
-          />
+                );
+              }}
+            />
+          </div>
 
-          <ManagementSection
-            title="存放位置"
-            emptyText="暂无存放位置"
-            items={state.storageLocations.map((location) => ({
-              ...location,
-              usageCount: countItemsByReference(state.items, "storageLocationId", location.id),
-            }))}
-            drafts={locationDrafts}
-            newName={newLocationName}
-            onNewNameChange={setNewLocationName}
-            onCreate={createNamedLocation}
-            onDraftChange={(id, value) => setLocationDrafts((current) => ({ ...current, [id]: value }))}
-            onRename={async (id, value) => {
-              const context = createActionContext();
-              const result = renameStorageLocation(state, id, value, context);
-              if (
-                await commit(
-                  result,
-                  (nextState) => {
-                    const location = requireStorageLocation(nextState, id);
-                    return repository.renameStorageLocation(id, location.name, location.updatedAt);
-                  },
-                  "存放位置已重命名",
-                )
-              ) {
-                setLocationDrafts((current) => removeDraft(current, id));
-              }
-            }}
-            onDelete={(id) => {
-              void commit(deleteStorageLocation(state, id), () => repository.deleteStorageLocation(id), "存放位置已删除");
-            }}
-            migrationTargets={locationMigrationTargets}
-            migrationOptions={state.storageLocations}
-            onMigrationTargetChange={(id, value) =>
-              setLocationMigrationTargets((current) => ({ ...current, [id]: value }))
-            }
-            onMigrateDelete={async (id, targetId) => {
-              const context = createActionContext();
-              if (
+          <div className="settings-column secondary-settings-column">
+            <section className="settings-section">
+              <div className="section-heading">
+                <h2>全局提醒</h2>
+                <p>商品自定义提醒优先于全局规则。</p>
+              </div>
+              <div className="quick-values">
+                {[0, 7, 30, 90].map((days) => (
+                  <button
+                    key={days}
+                    type="button"
+                    className={state.settings.defaultReminderDays === days ? "active" : ""}
+                    onClick={() => applyGlobalReminder(days)}
+                  >
+                    {days === 0 ? "当天" : `${days} 天`}
+                  </button>
+                ))}
+              </div>
+              <form
+                className="inline-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  applyGlobalReminder(Number(globalReminderDraft));
+                }}
+              >
+                <input
+                  aria-label="全局默认提醒提前天数"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={globalReminderDraft}
+                  onChange={(event) => setGlobalReminderDraft(event.currentTarget.value)}
+                />
+                <button type="submit">保存</button>
+              </form>
+            </section>
+
+            <ManagementSection
+              title="存放位置"
+              emptyText="暂无存放位置"
+              items={state.storageLocations.map((location) => ({
+                ...location,
+                usageCount: countItemsByReference(state.items, "storageLocationId", location.id),
+              }))}
+              drafts={locationDrafts}
+              newName={newLocationName}
+              onNewNameChange={setNewLocationName}
+              onCreate={createNamedLocation}
+              onDraftChange={(id, value) => setLocationDrafts((current) => ({ ...current, [id]: value }))}
+              onRename={async (id, value) => {
+                const context = createActionContext();
+                const result = renameStorageLocation(state, id, value, context);
+                if (
+                  await commit(
+                    result,
+                    (nextState) => {
+                      const location = requireStorageLocation(nextState, id);
+                      return repository.renameStorageLocation(id, location.name, location.updatedAt);
+                    },
+                    "存放位置已重命名",
+                  )
+                ) {
+                  setLocationDrafts((current) => removeDraft(current, id));
+                }
+              }}
+              onDelete={(id) => {
+                void commit(
+                  deleteStorageLocation(state, id),
+                  () => repository.deleteStorageLocation(id),
+                  "存放位置已删除",
+                );
+              }}
+              migrationOptions={state.storageLocations}
+              onMigrateDelete={async (id, targetId) => {
+                const context = createActionContext();
                 await commit(
                   migrateAndDeleteStorageLocation(state, id, targetId, context),
                   () => repository.migrateAndDeleteStorageLocation(id, targetId, context.now),
                   "存放位置已迁移并删除",
-                )
-              ) {
-                setLocationMigrationTargets((current) => removeDraft(current, id));
-              }
-            }}
-          />
+                );
+              }}
+            />
 
-          <section className="settings-section">
-            <div className="section-heading">
-              <h2>回收站</h2>
-              <p>{trashItems.length} 件已删除商品</p>
-            </div>
-            <button type="button" onClick={() => setView("trash")}>
-              进入回收站
-            </button>
-          </section>
+            <section className="settings-section">
+              <div className="section-heading">
+                <h2>回收站</h2>
+                <p>{trashItems.length} 件已删除商品</p>
+              </div>
+              <button type="button" onClick={() => setView("trash")}>
+                进入回收站
+              </button>
+            </section>
+          </div>
         </section>
       ) : null}
 
@@ -663,7 +718,7 @@ function App() {
                   <button type="button" onClick={() => restoreFromTrash(item.id)}>
                     恢复
                   </button>
-                  <button type="button" className="danger" onClick={() => permanentlyDelete(item.id)}>
+                  <button type="button" className="danger" onClick={() => setConfirmPermanentDeleteItemId(item.id)}>
                     永久删除
                   </button>
                 </div>
@@ -672,6 +727,59 @@ function App() {
           )}
         </section>
       ) : null}
+
+      {formOpen ? (
+        <div className="modal-backdrop" onMouseDown={closeProductForm}>
+          <section
+            className="modal-card product-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={editingItemId ? "编辑商品" : "新增商品"}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <ProductForm
+              form={form}
+              previewItem={previewItem}
+              categories={state.categories.map((category) => category.name)}
+              locations={state.storageLocations.map((location) => location.name)}
+              isEditing={Boolean(editingItemId)}
+              globalReminderDays={state.settings.defaultReminderDays}
+              onSubmit={submitForm}
+              onCancel={closeProductForm}
+              onChange={updateForm}
+            />
+          </section>
+        </div>
+      ) : null}
+
+      {permanentDeleteItem ? (
+        <div className="modal-backdrop" onMouseDown={() => setConfirmPermanentDeleteItemId(undefined)}>
+          <section
+            className="modal-card confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="确认永久删除"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="confirm-content">
+              <p className="eyebrow">Permanent delete</p>
+              <h2>确认永久删除</h2>
+              <p>
+                「{permanentDeleteItem.name}」将从本地记录中永久删除。此操作无法撤销。
+              </p>
+            </div>
+            <div className="detail-actions">
+              <button type="button" onClick={() => setConfirmPermanentDeleteItemId(undefined)}>
+                取消
+              </button>
+              <button type="button" className="danger" onClick={() => permanentlyDelete(permanentDeleteItem.id)}>
+                永久删除
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+      </section>
     </main>
   );
 
@@ -1130,15 +1238,13 @@ type ManagementSectionProps = {
   items: ManagementItem[];
   drafts: Record<string, string>;
   newName: string;
-  migrationTargets: Record<string, string>;
   migrationOptions: ManagementItem[];
   onNewNameChange(value: string): void;
   onCreate(event: FormEvent<HTMLFormElement>): void;
   onDraftChange(id: string, value: string): void;
-  onMigrationTargetChange(id: string, value: string): void;
   onRename(id: string, value: string): void;
-  onDelete(id: string): void;
-  onMigrateDelete(id: string, targetId: string): void;
+  onDelete(id: string): void | Promise<void>;
+  onMigrateDelete(id: string, targetId: string): void | Promise<void>;
 };
 
 function ManagementSection({
@@ -1147,17 +1253,74 @@ function ManagementSection({
   items,
   drafts,
   newName,
-  migrationTargets,
   migrationOptions,
   onNewNameChange,
   onCreate,
   onDraftChange,
-  onMigrationTargetChange,
   onRename,
   onDelete,
   onMigrateDelete,
 }: ManagementSectionProps) {
+  const [deleteCandidateId, setDeleteCandidateId] = useState<string>();
+  const [modalMigrationTarget, setModalMigrationTarget] = useState("");
+  const deleteCandidate = items.find((item) => item.id === deleteCandidateId);
+  const usageCount = deleteCandidate?.usageCount ?? 0;
+  const isReferenced = usageCount > 0;
+  const migrationChoices = deleteCandidate
+    ? migrationOptions.filter((option) => option.id !== deleteCandidate.id)
+    : [];
+
+  useEffect(() => {
+    if (deleteCandidateId && !deleteCandidate) {
+      closeDeleteModal();
+    }
+  }, [deleteCandidate, deleteCandidateId]);
+
+  useEffect(() => {
+    if (!deleteCandidate) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeDeleteModal();
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [deleteCandidate]);
+
+  function openDeleteModal(itemId: string) {
+    setDeleteCandidateId(itemId);
+    setModalMigrationTarget("");
+  }
+
+  function closeDeleteModal() {
+    setDeleteCandidateId(undefined);
+    setModalMigrationTarget("");
+  }
+
+  function submitDirectDelete() {
+    if (!deleteCandidate || isReferenced) {
+      return;
+    }
+
+    void onDelete(deleteCandidate.id);
+    closeDeleteModal();
+  }
+
+  function submitMigrateDelete() {
+    if (!deleteCandidate || !modalMigrationTarget) {
+      return;
+    }
+
+    void onMigrateDelete(deleteCandidate.id, modalMigrationTarget);
+    closeDeleteModal();
+  }
+
   return (
+    <>
     <section className="settings-section">
       <div className="section-heading">
         <h2>{title}</h2>
@@ -1175,52 +1338,100 @@ function ManagementSection({
         <p className="muted">{emptyText}</p>
       ) : (
         <div className="management-list">
-          {items.map((item) => (
-            <div key={item.id} className="management-row">
-              <div className="management-main">
-                <input
-                  value={drafts[item.id] ?? item.name}
-                  aria-label={`${item.name} 名称`}
-                  onChange={(event) => onDraftChange(item.id, event.currentTarget.value)}
-                />
-                <span className="muted">
-                  {item.usageCount && item.usageCount > 0 ? `被 ${item.usageCount} 件商品使用` : "未被商品使用"}
-                </span>
-              </div>
-              <div className="management-actions">
-                <button type="button" onClick={() => onRename(item.id, drafts[item.id] ?? item.name)}>
-                  重命名
-                </button>
-                <select
-                  value={migrationTargets[item.id] ?? ""}
-                  onChange={(event) => onMigrationTargetChange(item.id, event.currentTarget.value)}
-                  aria-label={`${item.name} 迁移目标`}
-                >
-                  <option value="">迁移后删除...</option>
-                  {migrationOptions
-                    .filter((option) => option.id !== item.id)
-                    .map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.name}
-                      </option>
-                    ))}
-                </select>
-                <button
-                  type="button"
-                  disabled={!migrationTargets[item.id]}
-                  onClick={() => onMigrateDelete(item.id, migrationTargets[item.id])}
-                >
-                  迁移并删除
-                </button>
-                <button type="button" className="danger" onClick={() => onDelete(item.id)}>
-                  删除
-                </button>
-              </div>
-            </div>
-          ))}
+          {items.map((item) => {
+            const itemUsageCount = item.usageCount ?? 0;
+            const draftName = drafts[item.id] ?? item.name;
+
+            return (
+              <article key={item.id} className="management-row">
+                <div className="management-name-row">
+                  <label className="management-name-field">
+                    <span>名称</span>
+                    <input
+                      value={draftName}
+                      aria-label={`${item.name} 名称`}
+                      onChange={(event) => onDraftChange(item.id, event.currentTarget.value)}
+                    />
+                  </label>
+                  <button type="button" onClick={() => onRename(item.id, draftName)}>
+                    保存名称
+                  </button>
+                </div>
+                <div className="management-row-footer">
+                  <span className="muted">
+                    {itemUsageCount > 0 ? `被 ${itemUsageCount} 件商品使用` : "未被商品使用"}
+                  </span>
+                  <button
+                    type="button"
+                    className="management-delete-trigger danger"
+                    onClick={() => openDeleteModal(item.id)}
+                  >
+                    删除
+                  </button>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
     </section>
+    {deleteCandidate ? (
+      <div className="modal-backdrop" onMouseDown={closeDeleteModal}>
+        <section
+          className="modal-card management-delete-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${title}删除确认`}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="confirm-content">
+            <p className="eyebrow">Delete {title}</p>
+            <h2>删除{title}</h2>
+            <p>
+              「{deleteCandidate.name}」
+              {isReferenced ? `被 ${usageCount} 件商品使用。` : "未被商品使用。"}
+            </p>
+          </div>
+          <div className="management-delete-summary">
+            <span>当前使用</span>
+            <strong>{usageCount}</strong>
+            <span>{isReferenced ? "需要迁移后删除" : "可直接删除"}</span>
+          </div>
+          {isReferenced ? (
+            <label className="management-migration-field">
+              <span>迁移到</span>
+              <select
+                value={modalMigrationTarget}
+                onChange={(event) => setModalMigrationTarget(event.currentTarget.value)}
+                aria-label={`${deleteCandidate.name} 迁移目标`}
+              >
+                <option value="">选择迁移目标</option>
+                {migrationChoices.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <div className="detail-actions management-modal-actions">
+            <button type="button" onClick={closeDeleteModal}>
+              取消
+            </button>
+            {isReferenced ? (
+              <button type="button" className="danger" disabled={!modalMigrationTarget} onClick={submitMigrateDelete}>
+                迁移并删除
+              </button>
+            ) : (
+              <button type="button" className="danger" onClick={submitDirectDelete}>
+                直接删除
+              </button>
+            )}
+          </div>
+        </section>
+      </div>
+    ) : null}
+    </>
   );
 }
 
